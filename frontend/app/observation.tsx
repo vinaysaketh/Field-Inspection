@@ -54,6 +54,9 @@ export default function ObservationDetail() {
   const shareAsImage = async () => {
     if (!obs) return;
     setShareSheet("hidden");
+    // Wait for the modal's slide-out animation to finish so iOS can
+    // present UIActivityViewController without conflict.
+    await new Promise((r) => setTimeout(r, 350));
     try {
       const available = await Sharing.isAvailableAsync();
       if (!available) {
@@ -62,6 +65,7 @@ export default function ObservationDetail() {
       }
       await Sharing.shareAsync(obs.imageUri, {
         mimeType: "image/jpeg",
+        UTI: "public.jpeg",
         dialogTitle: obs.title || obs.number,
       });
     } catch (e: any) {
@@ -72,6 +76,7 @@ export default function ObservationDetail() {
   const shareAsPdf = async () => {
     if (!obs) return;
     setShareSheet("hidden");
+    await new Promise((r) => setTimeout(r, 350));
     setExporting(true);
     try {
       await exportObservationsPdf([obs], obs.title || obs.number);

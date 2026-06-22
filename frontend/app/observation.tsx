@@ -106,7 +106,14 @@ export default function ObservationDetail() {
               <Text style={{ color: colors.error, fontWeight: "600" }}>Delete Observation</Text>
             </Pressable>
           </>
-        ) : null}
+        ) : (
+          <View style={[styles.empty, { borderColor: colors.outline }]} testID="observation-empty-state">
+            <Ionicons name="alert-circle-outline" size={36} color={colors.onSurfaceMuted} />
+            <Text style={{ color: colors.onSurfaceMuted, textAlign: "center" }}>
+              No observation found.
+            </Text>
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -147,5 +154,14 @@ const styles = StyleSheet.create({
   deleteBtn: {
     flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6,
     paddingVertical: spacing.md, borderRadius: radius.full, borderWidth: 1,
+  },
+  empty: {
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderRadius: radius.md,
+    padding: spacing.xl,
+    alignItems: "center",
+    gap: spacing.sm,
+    marginTop: spacing.xl,
   },
 });

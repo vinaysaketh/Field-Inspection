@@ -626,9 +626,6 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.75)",
     fontSize: 11,
     fontWeight: "600",
-    textShadowColor: "rgba(0,0,0,0.5)",
-    textShadowRadius: 2,
-    textShadowOffset: { width: 0, height: 1 },
   },
   toolbarWrap: { backgroundColor: "rgba(0,0,0,0.55)", paddingTop: spacing.sm, paddingBottom: spacing.sm },
   toolBtn: {

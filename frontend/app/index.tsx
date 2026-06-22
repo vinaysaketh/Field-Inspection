@@ -149,6 +149,13 @@ export default function Home() {
             </Text>
           </View>
         }
+        ListFooterComponent={
+          <View style={styles.footer}>
+            <Text style={[styles.footerText, { color: colors.onSurfaceMuted }]} testID="home-footer">
+              Made by Nidamarthi Vinay Saketh
+            </Text>
+          </View>
+        }
         renderItem={({ item }) => (
           <Pressable
             testID={`recent-item-${item.number}`}
@@ -258,4 +265,13 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   emptyText: { fontSize: 13, textAlign: "center" },
+  footer: {
+    paddingVertical: spacing.xl,
+    alignItems: "center",
+  },
+  footerText: {
+    fontSize: 12,
+    fontWeight: "500",
+    letterSpacing: 0.3,
+  },
 });

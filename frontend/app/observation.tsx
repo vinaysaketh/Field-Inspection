@@ -195,7 +195,7 @@ export default function ObservationDetail() {
         animationType="fade"
         onRequestClose={() => setShowLikePrompt(false)}
       >
-        <View style={styles.sheetBackdrop}>
+        <View style={styles.likeBackdrop}>
           <View style={[styles.modalCard, { backgroundColor: colors.surface, maxWidth: 360 }]} testID="like-prompt">
             <View style={{ alignItems: "center", gap: 6 }}>
               <Ionicons name="heart" size={36} color={colors.primary} />
@@ -313,6 +313,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.45)",
     justifyContent: "flex-end",
+  },
+  likeBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.lg,
   },
   sheet: {
     paddingHorizontal: spacing.lg,

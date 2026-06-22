@@ -31,6 +31,7 @@ export default function Gallery() {
     return items.filter(
       (i) =>
         i.number.toLowerCase().includes(q) ||
+        (i.title?.toLowerCase().includes(q) ?? false) ||
         i.project.toLowerCase().includes(q) ||
         new Date(i.timestamp).toLocaleDateString().toLowerCase().includes(q),
     );
@@ -105,7 +106,7 @@ export default function Gallery() {
           >
             <Image source={{ uri: item.imageUri }} style={styles.thumb} />
             <View style={styles.thumbBadge}>
-              <Text style={styles.thumbBadgeText}>{item.number}</Text>
+              <Text style={styles.thumbBadgeText} numberOfLines={1}>{item.title || item.number}</Text>
             </View>
           </Pressable>
         )}

@@ -13,6 +13,7 @@ export interface LocationData {
 export interface Observation {
   id: string;
   number: string; // e.g. OBS-0001
+  title?: string; // user-editable display name (defaults to number)
   imageUri: string; // local file uri
   thumbnailUri?: string;
   location: LocationData | null;

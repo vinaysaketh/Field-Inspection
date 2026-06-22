@@ -31,7 +31,8 @@
         "android.permission.USE_BIOMETRIC",
         "android.permission.USE_FINGERPRINT",
         "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE"
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES"
       ]
     },
     "web": {
@@ -54,6 +55,20 @@
         "expo-camera",
         {
           "cameraPermission": "Capture photos for field observations"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Pick existing photos to annotate"
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Save annotated observation images to your Photos",
+          "savePhotosPermission": "Save annotated observation images to your Photos",
+          "isAccessMediaLocationEnabled": true
         }
       ],
       [

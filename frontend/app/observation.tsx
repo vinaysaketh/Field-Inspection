@@ -1,12 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
 import { useToast } from "@/src/components/Toast";
-import { deleteObservation, getObservation } from "@/src/store/observations";
+import { deleteObservation, getObservation, updateObservation } from "@/src/store/observations";
 import { Observation } from "@/src/store/types";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { radius, spacing, typography } from "@/src/theme/tokens";
@@ -19,6 +19,8 @@ export default function ObservationDetail() {
   const toast = useToast();
   const [obs, setObs] = useState<Observation | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [renameModal, setRenameModal] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
 
   useFocusEffect(
     useCallback(() => {
@@ -48,6 +50,21 @@ export default function ObservationDetail() {
     router.back();
   };
 
+  const openRename = () => {
+    if (!obs) return;
+    setTitleDraft(obs.title || obs.number);
+    setRenameModal(true);
+  };
+
+  const saveRename = async () => {
+    if (!obs) return;
+    const v = titleDraft.trim() || obs.number;
+    await updateObservation(obs.id, { title: v });
+    setObs({ ...obs, title: v });
+    setRenameModal(false);
+    toast.show("Renamed", { kind: "success" });
+  };
+
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.background }]} edges={["top","left","right","bottom"]}>
       <StatusBar style={scheme === "dark" ? "light" : "dark"} />
@@ -55,7 +72,17 @@ export default function ObservationDetail() {
         <Pressable testID="obs-back-button" onPress={() => router.back()} style={[styles.iconBtn, { backgroundColor: colors.surface, borderColor: colors.outline }]}>
           <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
         </Pressable>
-        <Text style={[styles.title, { color: colors.onSurface }]} testID="obs-number-label">{obs?.number ?? ""}</Text>
+        <Pressable
+          testID="obs-rename-button"
+          onPress={openRename}
+          disabled={!obs}
+          style={styles.titleBtn}
+        >
+          <Text style={[styles.title, { color: colors.onSurface }]} testID="obs-number-label" numberOfLines={1}>
+            {obs?.title || obs?.number || ""}
+          </Text>
+          <Ionicons name="pencil" size={14} color={colors.onSurfaceMuted} />
+        </Pressable>
         <Pressable
           testID="obs-export-button"
           onPress={onExport}
@@ -115,6 +142,31 @@ export default function ObservationDetail() {
           </View>
         )}
       </ScrollView>
+
+      <Modal visible={renameModal} transparent animationType="fade" onRequestClose={() => setRenameModal(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Rename observation</Text>
+            <TextInput
+              testID="rename-input-field"
+              autoFocus
+              value={titleDraft}
+              onChangeText={setTitleDraft}
+              placeholder={obs?.number || ""}
+              placeholderTextColor={colors.onSurfaceMuted}
+              style={[styles.modalInput, { color: colors.onSurface, borderColor: colors.outline }]}
+            />
+            <View style={styles.modalActions}>
+              <Pressable testID="rename-cancel-button" onPress={() => setRenameModal(false)} style={styles.modalBtn}>
+                <Text style={{ color: colors.onSurfaceMuted, fontWeight: "600" }}>Cancel</Text>
+              </Pressable>
+              <Pressable testID="rename-save-button" onPress={saveRename} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
+                <Text style={{ color: colors.onPrimary, fontWeight: "600" }}>Save</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -139,6 +191,14 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
   },
   title: { ...typography.h2, letterSpacing: 1 },
+  titleBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: spacing.md,
+  },
   iconBtn: {
     width: 44, height: 44, borderRadius: radius.full, borderWidth: 1,
     alignItems: "center", justifyContent: "center",
@@ -164,4 +224,28 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     marginTop: spacing.xl,
   },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.lg,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 480,
+    padding: spacing.lg,
+    borderRadius: radius.md,
+    gap: spacing.md,
+  },
+  modalTitle: { fontSize: 18, fontWeight: "600" },
+  modalInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+  },
+  modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: spacing.sm },
+  modalBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
 });

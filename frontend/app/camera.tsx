@@ -1,17 +1,22 @@
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View, ActivityIndicator } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, { runOnJS, useSharedValue } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
+import { useToast } from "@/src/components/Toast";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { radius, spacing } from "@/src/theme/tokens";
-import { useToast } from "@/src/components/Toast";
 
 type Flash = "off" | "on" | "auto";
 type Facing = "back" | "front";
+
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 export default function CameraScreen() {
   const { colors } = useTheme();
@@ -21,6 +26,18 @@ export default function CameraScreen() {
   const [facing, setFacing] = useState<Facing>("back");
   const [flash, setFlash] = useState<Flash>("off");
   const [busy, setBusy] = useState(false);
+  const [zoom, setZoom] = useState(0); // 0..1 for expo-camera
+  const savedZoom = useSharedValue(0);
+
+  const pinch = Gesture.Pinch()
+    .onStart(() => {
+      savedZoom.value = zoom;
+    })
+    .onUpdate((e) => {
+      // scale > 1 → zoom in, scale < 1 → zoom out
+      const next = clamp(savedZoom.value + (e.scale - 1) * 0.25, 0, 1);
+      runOnJS(setZoom)(next);
+    });
 
   if (!permission) {
     return (
@@ -72,21 +89,53 @@ export default function CameraScreen() {
     setFlash((f) => (f === "off" ? "on" : f === "on" ? "auto" : "off"));
   };
 
+  const pickFromGallery = async () => {
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        toast.show("Photos permission denied", { kind: "error" });
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: "images",
+        quality: 1,
+        exif: false,
+      });
+      if (!result.canceled && result.assets && result.assets[0]) {
+        const a = result.assets[0];
+        router.replace({
+          pathname: "/editor",
+          params: { uri: a.uri, width: String(a.width ?? 0), height: String(a.height ?? 0) },
+        });
+      }
+    } catch (e: any) {
+      toast.show("Picker error: " + (e?.message ?? "unknown"), { kind: "error" });
+    }
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
       <StatusBar style="light" />
-      <CameraView
-        ref={cameraRef}
-        style={StyleSheet.absoluteFillObject}
-        facing={facing}
-        flash={flash}
-        testID="camera-view"
-      />
+      <GestureDetector gesture={pinch}>
+        <Animated.View style={StyleSheet.absoluteFill} collapsable={false}>
+          <CameraView
+            ref={cameraRef}
+            style={StyleSheet.absoluteFillObject}
+            facing={facing}
+            flash={flash}
+            zoom={zoom}
+            testID="camera-view"
+          />
+        </Animated.View>
+      </GestureDetector>
       <SafeAreaView style={styles.overlay} edges={["top","bottom","left","right"]} pointerEvents="box-none">
         <View style={styles.topBar}>
           <Pressable testID="close-camera-button" onPress={() => router.back()} style={styles.topBtn}>
             <Ionicons name="close" size={26} color="#fff" />
           </Pressable>
+          <View style={styles.zoomPill} pointerEvents="none">
+            <Text style={styles.zoomText}>{(1 + zoom * 9).toFixed(1)}x</Text>
+          </View>
           <Pressable testID="toggle-flash-button" onPress={cycleFlash} style={styles.topBtn}>
             <Ionicons
               name={flash === "off" ? "flash-off" : flash === "on" ? "flash" : "flash-outline"}
@@ -97,9 +146,26 @@ export default function CameraScreen() {
           </Pressable>
         </View>
 
+        {/* Zoom slider buttons for users who can't pinch easily */}
+        <View style={styles.zoomBar} pointerEvents="box-none">
+          {[0, 0.25, 0.5, 0.75, 1].map((z) => (
+            <Pressable
+              key={z}
+              testID={`zoom-${Math.round((1 + z * 9))}x`}
+              onPress={() => setZoom(z)}
+              style={[
+                styles.zoomChip,
+                Math.abs(zoom - z) < 0.05 && { backgroundColor: "rgba(255,255,255,0.25)", borderColor: "#fff" },
+              ]}
+            >
+              <Text style={styles.zoomChipText}>{Math.round(1 + z * 9)}x</Text>
+            </Pressable>
+          ))}
+        </View>
+
         <View style={styles.bottomBar}>
-          <Pressable testID="flip-camera-button" onPress={() => setFacing((f) => (f === "back" ? "front" : "back"))} style={styles.sideBtn}>
-            <Ionicons name="camera-reverse-outline" size={26} color="#fff" />
+          <Pressable testID="pick-from-gallery-button" onPress={pickFromGallery} style={styles.sideBtn}>
+            <Ionicons name="images-outline" size={26} color="#fff" />
           </Pressable>
           <Pressable
             testID="shutter-button"
@@ -109,7 +175,9 @@ export default function CameraScreen() {
           >
             <View style={styles.shutterInner} />
           </Pressable>
-          <View style={styles.sideBtn} />
+          <Pressable testID="flip-camera-button" onPress={() => setFacing((f) => (f === "back" ? "front" : "back"))} style={styles.sideBtn}>
+            <Ionicons name="camera-reverse-outline" size={26} color="#fff" />
+          </Pressable>
         </View>
       </SafeAreaView>
     </View>
@@ -123,6 +191,7 @@ const styles = StyleSheet.create({
   topBar: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "center",
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
   },
@@ -131,13 +200,40 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     backgroundColor: "rgba(0,0,0,0.45)",
-    width: 56,
+    minWidth: 56,
     height: 44,
     paddingHorizontal: spacing.md,
     justifyContent: "center",
     borderRadius: radius.full,
   },
   topLabel: { color: "#fff", fontSize: 11, fontWeight: "600" },
+  zoomPill: {
+    backgroundColor: "rgba(0,0,0,0.55)",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+  },
+  zoomText: { color: "#fff", fontWeight: "700", fontSize: 13 },
+  zoomBar: {
+    position: "absolute",
+    bottom: 130,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+  },
+  zoomChip: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.25)",
+  },
+  zoomChipText: { color: "#fff", fontWeight: "700", fontSize: 12 },
   bottomBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -145,7 +241,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingBottom: spacing.lg,
   },
-  sideBtn: { width: 56, height: 56, alignItems: "center", justifyContent: "center" },
+  sideBtn: { width: 56, height: 56, alignItems: "center", justifyContent: "center", borderRadius: 28, backgroundColor: "rgba(0,0,0,0.4)" },
   shutter: {
     width: 78,
     height: 78,

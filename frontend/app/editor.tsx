@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image as ExpoImage } from "expo-image";
 import * as FileSystem from "expo-file-system/legacy";
+import * as MediaLibrary from "expo-media-library";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -383,6 +384,7 @@ export default function Editor() {
       setSettings(s);
       const num = await nextObservationNumber();
       setObsNumber(num);
+      setTitle(num);
       if (s.gpsEnabled) {
         const l = await getCurrentLocation();
         setLoc(l);
@@ -465,6 +467,7 @@ export default function Editor() {
       const obs: Observation = {
         id: genId(),
         number: obsNumber,
+        title: title.trim() || obsNumber,
         imageUri: dest,
         location: loc,
         timestamp: Date.now(),
@@ -478,7 +481,16 @@ export default function Editor() {
       if (loc && !loc.resolved) {
         await queueForGeocoding(obs.id);
       }
-      toast.show(`${obsNumber} saved`, { kind: "success" });
+      // Best-effort: also save annotated image to the device Photos library.
+      try {
+        const perm = await MediaLibrary.requestPermissionsAsync();
+        if (perm.granted) {
+          await MediaLibrary.saveToLibraryAsync(dest);
+        }
+      } catch (e) {
+        console.warn("MediaLibrary save failed", e);
+      }
+      toast.show(`${obs.title} saved`, { kind: "success" });
       router.replace({ pathname: "/observation", params: { id: obs.id } });
     } catch (e: any) {
       toast.show("Save failed: " + (e?.message ?? "unknown"), { kind: "error" });
@@ -532,7 +544,16 @@ export default function Editor() {
           <Pressable testID="editor-close-button" onPress={() => router.back()} style={styles.iconBtn}>
             <Ionicons name="close" size={24} color="#fff" />
           </Pressable>
-          <Text style={styles.headerNum} testID="editor-obs-number">{obsNumber}</Text>
+          <Pressable
+            testID="editor-title-button"
+            onPress={() => setShowTitleModal(true)}
+            style={styles.titleBtn}
+          >
+            <Text style={styles.headerNum} numberOfLines={1}>
+              {title || obsNumber}
+            </Text>
+            <Ionicons name="pencil" size={14} color="rgba(255,255,255,0.7)" />
+          </Pressable>
           <View style={{ flexDirection: "row", gap: 4 }}>
             <Pressable testID="editor-zoom-reset" onPress={resetZoom} style={styles.iconBtn}>
               <Ionicons name="contract-outline" size={20} color="#fff" />
@@ -739,6 +760,35 @@ export default function Editor() {
         </View>
       </SafeAreaView>
 
+      {/* Title rename modal */}
+      <Modal visible={showTitleModal} transparent animationType="fade" onRequestClose={() => setShowTitleModal(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Rename observation</Text>
+            <TextInput
+              testID="title-input-field"
+              autoFocus
+              value={title}
+              onChangeText={setTitle}
+              placeholder={obsNumber}
+              placeholderTextColor={colors.onSurfaceMuted}
+              style={[styles.modalInput, { color: colors.onSurface, borderColor: colors.outline }]}
+            />
+            <Text style={{ color: colors.onSurfaceMuted, fontSize: 12 }}>
+              The observation number ({obsNumber}) stays the same; this is just a display name.
+            </Text>
+            <View style={styles.modalActions}>
+              <Pressable testID="title-reset-button" onPress={() => setTitle(obsNumber)} style={styles.modalBtn}>
+                <Text style={{ color: colors.onSurfaceMuted, fontWeight: "600" }}>Reset</Text>
+              </Pressable>
+              <Pressable testID="title-done-button" onPress={() => setShowTitleModal(false)} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
+                <Text style={{ color: colors.onPrimary, fontWeight: "600" }}>Done</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Text input modal */}
       <Modal visible={!!textModal} transparent animationType="fade" onRequestClose={() => setTextModal(null)}>
         <View style={styles.modalBackdrop}>
@@ -942,6 +992,16 @@ const styles = StyleSheet.create({
     marginHorizontal: 2,
   },
   headerNum: { color: "#fff", fontSize: 16, fontWeight: "700", letterSpacing: 1 },
+  titleBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: radius.full,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    maxWidth: 200,
+  },
   canvasWrap: { flex: 1, backgroundColor: "#000", overflow: "hidden" },
   shotArea: { backgroundColor: "#000", overflow: "hidden" },
   image: { width: "100%", height: "100%" },

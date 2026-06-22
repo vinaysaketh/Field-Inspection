@@ -12,9 +12,11 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { spacing, radius, typography } from "@/src/theme/tokens";
 import { processGeocodeQueue } from "@/src/utils/location";
 import { hasPin } from "@/src/utils/auth";
+import { useToast } from "@/src/components/Toast";
 
 export default function Home() {
   const { colors, scheme } = useTheme();
+  const toast = useToast();
   const [recent, setRecent] = useState<Observation[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [unlocked, setUnlocked] = useState(false);
@@ -45,6 +47,30 @@ export default function Home() {
   );
 
   if (!unlocked) return <View style={{ flex: 1, backgroundColor: colors.background }} />;
+
+  const pickFromGallery = async () => {
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        toast.show("Photos permission denied", { kind: "error" });
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: "images",
+        quality: 1,
+        exif: false,
+      });
+      if (!result.canceled && result.assets && result.assets[0]) {
+        const a = result.assets[0];
+        router.push({
+          pathname: "/editor",
+          params: { uri: a.uri, width: String(a.width ?? 0), height: String(a.height ?? 0) },
+        });
+      }
+    } catch (e: any) {
+      toast.show("Picker error: " + (e?.message ?? "unknown"), { kind: "error" });
+    }
+  };
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.background }]} edges={["top", "left", "right"]}>
@@ -83,18 +109,33 @@ export default function Home() {
           <Text style={[styles.primarySub, { color: colors.onPrimary }]}>Tap to start</Text>
         </Pressable>
 
-        <Pressable
-          testID="open-gallery-button"
-          onPress={() => router.push("/gallery")}
-          style={({ pressed }) => [
-            styles.secondaryCard,
-            { backgroundColor: colors.surface, borderColor: colors.outline, opacity: pressed ? 0.85 : 1 },
-          ]}
-        >
-          <Ionicons name="images-outline" size={28} color={colors.primary} />
-          <Text style={[styles.secondaryLabel, { color: colors.onSurface }]}>Gallery</Text>
-          <Text style={[styles.secondarySub, { color: colors.onSurfaceMuted }]}>{recent.length === 0 ? "Empty" : "View all"}</Text>
-        </Pressable>
+        <View style={{ flex: 1, gap: spacing.md }}>
+          <Pressable
+            testID="pick-photo-button"
+            onPress={pickFromGallery}
+            style={({ pressed }) => [
+              styles.smallCard,
+              { backgroundColor: colors.surface, borderColor: colors.outline, opacity: pressed ? 0.85 : 1 },
+            ]}
+          >
+            <Ionicons name="image-outline" size={22} color={colors.primary} />
+            <Text style={[styles.smallLabel, { color: colors.onSurface }]}>Pick Photo</Text>
+            <Text style={[styles.smallSub, { color: colors.onSurfaceMuted }]}>Annotate existing</Text>
+          </Pressable>
+
+          <Pressable
+            testID="open-gallery-button"
+            onPress={() => router.push("/gallery")}
+            style={({ pressed }) => [
+              styles.smallCard,
+              { backgroundColor: colors.surface, borderColor: colors.outline, opacity: pressed ? 0.85 : 1 },
+            ]}
+          >
+            <Ionicons name="images-outline" size={22} color={colors.primary} />
+            <Text style={[styles.smallLabel, { color: colors.onSurface }]}>Gallery</Text>
+            <Text style={[styles.smallSub, { color: colors.onSurfaceMuted }]}>{recent.length === 0 ? "Empty" : "View all"}</Text>
+          </Pressable>
+        </View>
       </View>
 
       <View style={styles.sectionHeader}>
@@ -126,9 +167,9 @@ export default function Home() {
           >
             <Image source={{ uri: item.imageUri }} style={styles.recentThumb} />
             <View style={{ flex: 1 }}>
-              <Text style={[styles.recentNumber, { color: colors.onSurface }]}>{item.number}</Text>
+              <Text style={[styles.recentNumber, { color: colors.onSurface }]}>{item.title || item.number}</Text>
               <Text style={[styles.recentMeta, { color: colors.onSurfaceMuted }]} numberOfLines={1}>
-                {item.project || "Untitled project"}
+                {item.project || item.number}
               </Text>
               <Text style={[styles.recentMeta, { color: colors.onSurfaceMuted }]}>
                 {new Date(item.timestamp).toLocaleString()}
@@ -176,6 +217,18 @@ const styles = StyleSheet.create({
   },
   primaryLabel: { ...typography.h3, marginTop: spacing.sm },
   primarySub: { fontSize: 13, opacity: 0.85 },
+  smallCard: {
+    flex: 1,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    borderWidth: 1,
+    justifyContent: "space-between",
+    minHeight: 64,
+    gap: 2,
+  },
+  smallLabel: { fontSize: 15, fontWeight: "600" },
+  smallSub: { fontSize: 11 },
   secondaryCard: {
     flex: 1,
     borderRadius: radius.md,

@@ -1,11 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
+import { Image as ExpoImage } from "expo-image";
 import * as FileSystem from "expo-file-system/legacy";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Image,
   Modal,
-  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,6 +12,13 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import Svg, {
@@ -24,29 +30,30 @@ import Svg, {
   Rect,
   Text as SvgText,
 } from "react-native-svg";
-import ViewShot, { captureRef } from "react-native-view-shot";
+import { captureRef } from "react-native-view-shot";
 
 import { useToast } from "@/src/components/Toast";
 import { addObservation, nextObservationNumber } from "@/src/store/observations";
 import { loadSettings } from "@/src/store/settings";
-import { LocationData, Observation } from "@/src/store/types";
+import { AppSettings, LocationData, Observation } from "@/src/store/types";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { annotationPalette, radius, spacing } from "@/src/theme/tokens";
 import { formatLocationStamp, getCurrentLocation, queueForGeocoding } from "@/src/utils/location";
 
-type Tool = "text" | "circle" | "arrow" | "rectangle" | "freedraw" | "marker";
+type Tool = "select" | "text" | "circle" | "arrow" | "rectangle" | "freedraw" | "marker";
 type ColorName = keyof typeof annotationPalette;
 type Size = "S" | "M" | "L";
 
-type Element =
-  | { id: string; type: "text"; x: number; y: number; text: string; color: string; size: Size }
-  | { id: string; type: "circle"; cx: number; cy: number; r: number; color: string }
-  | { id: string; type: "arrow"; x1: number; y1: number; x2: number; y2: number; color: string }
-  | { id: string; type: "rectangle"; x: number; y: number; w: number; h: number; color: string }
-  | { id: string; type: "freedraw"; d: string; color: string; strokeWidth: number }
-  | { id: string; type: "marker"; x: number; y: number; n: number; color: string };
+type TextEl = { id: string; type: "text"; x: number; y: number; text: string; color: string; size: Size };
+type CircleEl = { id: string; type: "circle"; cx: number; cy: number; r: number; color: string };
+type ArrowEl = { id: string; type: "arrow"; x1: number; y1: number; x2: number; y2: number; color: string };
+type RectEl = { id: string; type: "rectangle"; x: number; y: number; w: number; h: number; color: string };
+type FreeEl = { id: string; type: "freedraw"; d: string; color: string; strokeWidth: number };
+type MarkerEl = { id: string; type: "marker"; x: number; y: number; n: number; color: string };
+type Element = TextEl | CircleEl | ArrowEl | RectEl | FreeEl | MarkerEl;
 
 const TOOL_LIST: { tool: Tool; icon: keyof typeof Ionicons.glyphMap; label: string }[] = [
+  { tool: "select", icon: "hand-left-outline", label: "Move" },
   { tool: "text", icon: "text", label: "Text" },
   { tool: "circle", icon: "ellipse-outline", label: "Circle" },
   { tool: "arrow", icon: "arrow-forward", label: "Arrow" },
@@ -55,11 +62,65 @@ const TOOL_LIST: { tool: Tool; icon: keyof typeof Ionicons.glyphMap; label: stri
   { tool: "marker", icon: "location", label: "Marker" },
 ];
 
-const SIZE_PX: Record<Size, number> = { S: 16, M: 22, L: 30 };
+const SIZE_PX: Record<Size, number> = { S: 18, M: 26, L: 36 };
 const COLOR_ORDER: ColorName[] = ["red", "yellow", "white", "green", "blue"];
 
 function genId() {
   return Math.random().toString(36).slice(2, 10);
+}
+
+// Hit-testing for select tool
+function hitTest(elements: Element[], px: number, py: number): Element | null {
+  // iterate top-to-bottom (last drawn first)
+  for (let i = elements.length - 1; i >= 0; i--) {
+    const el = elements[i];
+    if (el.type === "text") {
+      const fs = SIZE_PX[el.size];
+      const w = (el.text.length * fs) * 0.6;
+      if (px >= el.x - 4 && px <= el.x + w + 4 && py >= el.y - fs && py <= el.y + 4) return el;
+    } else if (el.type === "circle") {
+      const d = Math.hypot(px - el.cx, py - el.cy);
+      if (Math.abs(d - el.r) <= 14 || d <= 18) return el;
+    } else if (el.type === "arrow") {
+      // distance from segment
+      const dx = el.x2 - el.x1, dy = el.y2 - el.y1;
+      const len2 = dx * dx + dy * dy || 1;
+      const t = Math.max(0, Math.min(1, ((px - el.x1) * dx + (py - el.y1) * dy) / len2));
+      const cx = el.x1 + t * dx, cy = el.y1 + t * dy;
+      if (Math.hypot(px - cx, py - cy) <= 16) return el;
+    } else if (el.type === "rectangle") {
+      if (px >= el.x - 8 && px <= el.x + el.w + 8 && py >= el.y - 8 && py <= el.y + el.h + 8) return el;
+    } else if (el.type === "marker") {
+      if (Math.hypot(px - el.x, py - el.y) <= 18) return el;
+    } else if (el.type === "freedraw") {
+      // sample first/last points crudely
+      const m = /M([\d.]+) ([\d.]+)/.exec(el.d);
+      if (m && Math.hypot(px - parseFloat(m[1]), py - parseFloat(m[2])) <= 18) return el;
+    }
+  }
+  return null;
+}
+
+function moveElement(el: Element, dx: number, dy: number): Element {
+  switch (el.type) {
+    case "text":
+    case "marker":
+      return { ...el, x: el.x + dx, y: el.y + dy };
+    case "circle":
+      return { ...el, cx: el.cx + dx, cy: el.cy + dy };
+    case "arrow":
+      return { ...el, x1: el.x1 + dx, y1: el.y1 + dy, x2: el.x2 + dx, y2: el.y2 + dy };
+    case "rectangle":
+      return { ...el, x: el.x + dx, y: el.y + dy };
+    case "freedraw":
+      // shift all coords in path string
+      const shifted = el.d.replace(/([ML])([\d.]+) ([\d.]+)/g, (_m, cmd, sx, sy) => {
+        const nx = (parseFloat(sx) + dx).toFixed(1);
+        const ny = (parseFloat(sy) + dy).toFixed(1);
+        return `${cmd}${nx} ${ny}`;
+      });
+      return { ...el, d: shifted };
+  }
 }
 
 export default function Editor() {
@@ -73,47 +134,249 @@ export default function Editor() {
     w: parseInt(params.width || "0", 10) || 1080,
     h: parseInt(params.height || "0", 10) || 1440,
   });
-  const [tool, setTool] = useState<Tool>("text");
+
+  const [tool, setTool] = useState<Tool>("select");
   const [color, setColor] = useState<ColorName>("yellow");
   const [size, setSize] = useState<Size>("M");
   const [strokeWidth, setStrokeWidth] = useState(4);
 
-  // History stack
+  // History
   const [history, setHistory] = useState<Element[][]>([[]]);
   const [historyIdx, setHistoryIdx] = useState(0);
   const elements = history[historyIdx];
 
-  // Draft (in-progress) element being drawn
   const [draft, setDraft] = useState<Element | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const markerCounterRef = useRef(0);
 
-  // Text input modal
-  const [textModal, setTextModal] = useState<{ x: number; y: number; value: string } | null>(null);
+  // Modal state
+  const [textModal, setTextModal] = useState<{ x: number; y: number; value: string; editingId?: string } | null>(null);
 
-  // Location
+  // Location & save
   const [loc, setLoc] = useState<LocationData | null>(null);
   const [obsNumber, setObsNumber] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
   const [showNotes, setShowNotes] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [settings, setSettings] = useState<Awaited<ReturnType<typeof loadSettings>> | null>(null);
+  const [settings, setSettings] = useState<AppSettings | null>(null);
 
-  // Container layout (so we can map touch coords to image coords)
+  // Container sizing → letterboxed image rect
   const [containerSize, setContainerSize] = useState<{ w: number; h: number }>({ w: 1, h: 1 });
   const displayed = useMemo(() => {
-    // Letterbox the image inside container, returns rect.
-    const cw = containerSize.w;
-    const ch = containerSize.h;
-    const iw = imageDims.w || 1;
-    const ih = imageDims.h || 1;
-    const scale = Math.min(cw / iw, ch / ih);
-    const w = iw * scale;
-    const h = ih * scale;
-    const x = (cw - w) / 2;
-    const y = (ch - h) / 2;
-    return { x, y, w, h, scale };
+    const cw = containerSize.w, ch = containerSize.h;
+    const iw = imageDims.w || 1, ih = imageDims.h || 1;
+    const scaleFit = Math.min(cw / iw, ch / ih);
+    const w = iw * scaleFit, h = ih * scaleFit;
+    return { x: (cw - w) / 2, y: (ch - h) / 2, w, h, scaleFit };
   }, [containerSize, imageDims]);
 
+  // Zoom transform (shared values)
+  const scale = useSharedValue(1);
+  const tx = useSharedValue(0);
+  const ty = useSharedValue(0);
+  const savedScale = useSharedValue(1);
+  const savedTx = useSharedValue(0);
+  const savedTy = useSharedValue(0);
+
+  // Convert outer (container-relative) touch coords → logical canvas coords
+  // (logical = unscaled coordinate inside the displayed image rect)
+  // Reverses: screen = center + s*(content - center) + (tx, ty)
+  const toLogicalJS = (sx: number, sy: number) => {
+    const cx = displayed.x + displayed.w / 2;
+    const cy = displayed.y + displayed.h / 2;
+    const lx = (sx - tx.value - cx) / scale.value + cx;
+    const ly = (sy - ty.value - cy) / scale.value + cy;
+    return { x: lx, y: ly };
+  };
+
+  // -------- Gestures --------
+  const pinch = Gesture.Pinch()
+    .onStart(() => {
+      savedScale.value = scale.value;
+    })
+    .onUpdate((e) => {
+      const next = Math.max(1, Math.min(5, savedScale.value * e.scale));
+      scale.value = next;
+    })
+    .onEnd(() => {
+      savedScale.value = scale.value;
+      if (scale.value <= 1.01) {
+        scale.value = withTiming(1);
+        tx.value = withTiming(0);
+        ty.value = withTiming(0);
+        savedScale.value = 1;
+        savedTx.value = 0;
+        savedTy.value = 0;
+      }
+    });
+
+  const pan2 = Gesture.Pan()
+    .minPointers(2)
+    .onStart(() => {
+      savedTx.value = tx.value;
+      savedTy.value = ty.value;
+    })
+    .onUpdate((e) => {
+      tx.value = savedTx.value + e.translationX;
+      ty.value = savedTy.value + e.translationY;
+    })
+    .onEnd(() => {
+      savedTx.value = tx.value;
+      savedTy.value = ty.value;
+    });
+
+  // ----- Drawing / selection gesture (1 finger) -----
+  const draftStart = useRef<{ x: number; y: number; id?: string } | null>(null);
+  const moveStartRef = useRef<{ x: number; y: number; el: Element } | null>(null);
+
+  const beginDraw = (sx: number, sy: number) => {
+    const p = toLogicalJS(sx, sy);
+    if (p.x < displayed.x || p.x > displayed.x + displayed.w || p.y < displayed.y || p.y > displayed.y + displayed.h) {
+      return;
+    }
+    if (tool === "select") {
+      const hit = hitTest(elements, p.x, p.y);
+      if (hit) {
+        setSelectedId(hit.id);
+        moveStartRef.current = { x: p.x, y: p.y, el: hit };
+      } else {
+        setSelectedId(null);
+        moveStartRef.current = null;
+      }
+      return;
+    }
+    // For non-select tools, tap on an existing text element re-opens edit modal
+    if (tool === "text") {
+      const hit = hitTest(elements, p.x, p.y);
+      if (hit && hit.type === "text") {
+        setTextModal({ x: hit.x, y: hit.y, value: hit.text, editingId: hit.id });
+        setSelectedId(hit.id);
+        return;
+      }
+      setTextModal({ x: p.x, y: p.y, value: "" });
+      return;
+    }
+    if (tool === "marker") {
+      markerCounterRef.current += 1;
+      const el: MarkerEl = {
+        id: genId(),
+        type: "marker",
+        x: p.x,
+        y: p.y,
+        n: markerCounterRef.current,
+        color: annotationPalette[color],
+      };
+      pushHistory([...elements, el]);
+      return;
+    }
+    draftStart.current = { x: p.x, y: p.y };
+    if (tool === "freedraw") {
+      setDraft({
+        id: genId(),
+        type: "freedraw",
+        d: `M${p.x.toFixed(1)} ${p.y.toFixed(1)}`,
+        color: annotationPalette[color],
+        strokeWidth,
+      });
+    } else if (tool === "circle") {
+      setDraft({ id: genId(), type: "circle", cx: p.x, cy: p.y, r: 0, color: annotationPalette[color] });
+    } else if (tool === "arrow") {
+      setDraft({ id: genId(), type: "arrow", x1: p.x, y1: p.y, x2: p.x, y2: p.y, color: annotationPalette[color] });
+    } else if (tool === "rectangle") {
+      setDraft({ id: genId(), type: "rectangle", x: p.x, y: p.y, w: 0, h: 0, color: annotationPalette[color] });
+    }
+  };
+
+  const updateDraw = (sx: number, sy: number) => {
+    const p = toLogicalJS(sx, sy);
+    if (tool === "select" && moveStartRef.current && selectedId) {
+      const start = moveStartRef.current;
+      const dx = p.x - start.x;
+      const dy = p.y - start.y;
+      // optimistic in-place update on the current history slot
+      const moved = moveElement(start.el, dx, dy);
+      const next = elements.map((e) => (e.id === selectedId ? moved : e));
+      // replace current slot to avoid history thrash
+      const trimmed = history.slice(0, historyIdx + 1);
+      trimmed[historyIdx] = next;
+      setHistory(trimmed);
+      return;
+    }
+    setDraft((d) => {
+      if (!d) return d;
+      if (d.type === "freedraw") return { ...d, d: d.d + ` L${p.x.toFixed(1)} ${p.y.toFixed(1)}` };
+      if (d.type === "circle") return { ...d, r: Math.hypot(p.x - d.cx, p.y - d.cy) };
+      if (d.type === "arrow") return { ...d, x2: p.x, y2: p.y };
+      if (d.type === "rectangle") return { ...d, w: p.x - d.x, h: p.y - d.y };
+      return d;
+    });
+  };
+
+  const endDraw = () => {
+    if (tool === "select" && moveStartRef.current) {
+      // Commit moved state as a new history step
+      moveStartRef.current = null;
+      const next = elements.slice();
+      const trimmed2 = history.slice(0, historyIdx + 1);
+      trimmed2.push(next);
+      setHistory(trimmed2);
+      setHistoryIdx(trimmed2.length - 1);
+      return;
+    }
+    setDraft((d) => {
+      if (d) {
+        let final = d;
+        if (d.type === "rectangle") {
+          final = {
+            ...d,
+            x: Math.min(d.x, d.x + d.w),
+            y: Math.min(d.y, d.y + d.h),
+            w: Math.abs(d.w),
+            h: Math.abs(d.h),
+          };
+        }
+        if (d.type === "circle" && d.r < 6) return null;
+        if (d.type === "arrow" && Math.hypot(d.x2 - d.x1, d.y2 - d.y1) < 8) return null;
+        if (d.type === "rectangle" && (Math.abs(d.w) < 8 || Math.abs(d.h) < 8)) return null;
+        pushHistory([...elements, final]);
+      }
+      return null;
+    });
+    draftStart.current = null;
+  };
+
+  const drawGesture = Gesture.Pan()
+    .maxPointers(1)
+    .minDistance(0)
+    .onBegin((e) => {
+      runOnJS(beginDraw)(e.x, e.y);
+    })
+    .onUpdate((e) => {
+      runOnJS(updateDraw)(e.x, e.y);
+    })
+    .onEnd(() => {
+      runOnJS(endDraw)();
+    });
+
+  const composed = Gesture.Race(Gesture.Simultaneous(pinch, pan2), drawGesture);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: tx.value }, { translateY: ty.value }, { scale: scale.value }],
+  }));
+
+  // -------- History helpers --------
+  const pushHistory = (next: Element[]) => {
+    const trimmed = history.slice(0, historyIdx + 1);
+    trimmed.push(next);
+    setHistory(trimmed);
+    setHistoryIdx(trimmed.length - 1);
+  };
+  const undo = () => historyIdx > 0 && setHistoryIdx(historyIdx - 1);
+  const redo = () => historyIdx < history.length - 1 && setHistoryIdx(historyIdx + 1);
+  const canUndo = historyIdx > 0;
+  const canRedo = historyIdx < history.length - 1;
+
+  // -------- Load location & obs number --------
   useEffect(() => {
     (async () => {
       const s = await loadSettings();
@@ -127,117 +390,24 @@ export default function Editor() {
     })();
   }, []);
 
-  const pushHistory = (next: Element[]) => {
-    const trimmed = history.slice(0, historyIdx + 1);
-    trimmed.push(next);
-    setHistory(trimmed);
-    setHistoryIdx(trimmed.length - 1);
-  };
-
-  const undo = () => historyIdx > 0 && setHistoryIdx(historyIdx - 1);
-  const redo = () => historyIdx < history.length - 1 && setHistoryIdx(historyIdx + 1);
-
-  const canUndo = historyIdx > 0;
-  const canRedo = historyIdx < history.length - 1;
-
-  // Convert touch coords (relative to container) to displayed image coords.
-  // We store coords in container space; they remain consistent for rendering.
-  const insideImage = (px: number, py: number) =>
-    px >= displayed.x && px <= displayed.x + displayed.w && py >= displayed.y && py <= displayed.y + displayed.h;
-
-  const pan = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => !textModal,
-        onMoveShouldSetPanResponder: () => !textModal,
-        onPanResponderGrant: (e) => {
-          const { locationX: x, locationY: y } = e.nativeEvent;
-          if (!insideImage(x, y)) return;
-          if (tool === "text") {
-            setTextModal({ x, y, value: "" });
-            return;
-          }
-          if (tool === "marker") {
-            markerCounterRef.current += 1;
-            const el: Element = {
-              id: genId(),
-              type: "marker",
-              x,
-              y,
-              n: markerCounterRef.current,
-              color: annotationPalette[color],
-            };
-            pushHistory([...elements, el]);
-            return;
-          }
-          if (tool === "freedraw") {
-            setDraft({
-              id: genId(),
-              type: "freedraw",
-              d: `M${x.toFixed(1)} ${y.toFixed(1)}`,
-              color: annotationPalette[color],
-              strokeWidth,
-            });
-            return;
-          }
-          // shape tools: circle / arrow / rectangle
-          if (tool === "circle") {
-            setDraft({ id: genId(), type: "circle", cx: x, cy: y, r: 0, color: annotationPalette[color] });
-          } else if (tool === "arrow") {
-            setDraft({ id: genId(), type: "arrow", x1: x, y1: y, x2: x, y2: y, color: annotationPalette[color] });
-          } else if (tool === "rectangle") {
-            setDraft({ id: genId(), type: "rectangle", x, y, w: 0, h: 0, color: annotationPalette[color] });
-          }
-        },
-        onPanResponderMove: (e) => {
-          const { locationX: x, locationY: y } = e.nativeEvent;
-          setDraft((d) => {
-            if (!d) return d;
-            if (d.type === "freedraw") {
-              return { ...d, d: d.d + ` L${x.toFixed(1)} ${y.toFixed(1)}` };
-            }
-            if (d.type === "circle") {
-              const r = Math.hypot(x - d.cx, y - d.cy);
-              return { ...d, r };
-            }
-            if (d.type === "arrow") {
-              return { ...d, x2: x, y2: y };
-            }
-            if (d.type === "rectangle") {
-              return { ...d, w: x - d.x, h: y - d.y };
-            }
-            return d;
-          });
-        },
-        onPanResponderRelease: () => {
-          setDraft((d) => {
-            if (d) {
-              // Normalize rectangle (negative w/h)
-              let final = d;
-              if (d.type === "rectangle") {
-                const nx = Math.min(d.x, d.x + d.w);
-                const ny = Math.min(d.y, d.y + d.h);
-                final = { ...d, x: nx, y: ny, w: Math.abs(d.w), h: Math.abs(d.h) };
-              }
-              if (d.type === "circle" && d.r < 4) return null;
-              if (d.type === "arrow" && Math.hypot(d.x2 - d.x1, d.y2 - d.y1) < 6) return null;
-              if (d.type === "rectangle" && (Math.abs(d.w) < 6 || Math.abs(d.h) < 6)) return null;
-              pushHistory([...elements, final]);
-            }
-            return null;
-          });
-        },
-        onPanResponderTerminate: () => setDraft(null),
-      }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tool, color, strokeWidth, elements, textModal, displayed.x, displayed.y, displayed.w, displayed.h],
-  );
-
+  // -------- Text modal commit --------
   const commitTextModal = () => {
     if (!textModal) return;
     const v = textModal.value.trim();
-    if (v) {
-      const el: Element = {
+    if (textModal.editingId) {
+      if (!v) {
+        // empty = delete
+        pushHistory(elements.filter((e) => e.id !== textModal.editingId));
+      } else {
+        const next = elements.map((e) =>
+          e.id === textModal.editingId && e.type === "text"
+            ? { ...e, text: v, color: annotationPalette[color], size }
+            : e,
+        );
+        pushHistory(next);
+      }
+    } else if (v) {
+      const el: TextEl = {
         id: genId(),
         type: "text",
         x: textModal.x,
@@ -251,6 +421,7 @@ export default function Editor() {
     setTextModal(null);
   };
 
+  // -------- Save --------
   const stampText = useMemo(() => {
     if (!settings?.gpsEnabled || !loc) return "";
     return formatLocationStamp(loc, settings.stampTemplate, settings.customTemplate, new Date());
@@ -269,14 +440,23 @@ export default function Editor() {
   const save = async () => {
     if (!imageUri || saving) return;
     setSaving(true);
+    // Reset zoom for capture (capture pre-transform anyway, but make UI consistent)
+    scale.value = withTiming(1);
+    tx.value = withTiming(0);
+    ty.value = withTiming(0);
+    savedScale.value = 1;
+    savedTx.value = 0;
+    savedTy.value = 0;
+    setSelectedId(null);
     try {
-      // Capture annotated view into a flat image
       const captured = await captureRef(shotRef as any, {
         format: "jpg",
         quality: 0.92,
         result: "tmpfile",
+        // upscale snapshot to native image resolution for crisp output
+        width: imageDims.w,
+        height: imageDims.h,
       });
-      // Move to a stable docs path
       const dir = `${FileSystem.documentDirectory}observations/`;
       await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
       const dest = `${dir}${obsNumber}_${Date.now()}.jpg`;
@@ -307,6 +487,33 @@ export default function Editor() {
     }
   };
 
+  // Reset zoom helper
+  const resetZoom = () => {
+    scale.value = withTiming(1);
+    tx.value = withTiming(0);
+    ty.value = withTiming(0);
+    savedScale.value = 1;
+    savedTx.value = 0;
+    savedTy.value = 0;
+  };
+
+  // Selected element delete (FAB)
+  const deleteSelected = () => {
+    if (!selectedId) return;
+    pushHistory(elements.filter((e) => e.id !== selectedId));
+    setSelectedId(null);
+  };
+
+  // Edit selected text shortcut
+  const editSelectedText = () => {
+    const el = elements.find((e) => e.id === selectedId);
+    if (el && el.type === "text") {
+      setColor((Object.keys(annotationPalette) as ColorName[]).find((k) => annotationPalette[k] === el.color) ?? "yellow");
+      setSize(el.size);
+      setTextModal({ x: el.x, y: el.y, value: el.text, editingId: el.id });
+    }
+  };
+
   if (!imageUri) {
     return (
       <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -314,6 +521,8 @@ export default function Editor() {
       </View>
     );
   }
+
+  const selectedEl = elements.find((e) => e.id === selectedId) ?? null;
 
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
@@ -325,6 +534,9 @@ export default function Editor() {
           </Pressable>
           <Text style={styles.headerNum} testID="editor-obs-number">{obsNumber}</Text>
           <View style={{ flexDirection: "row", gap: 4 }}>
+            <Pressable testID="editor-zoom-reset" onPress={resetZoom} style={styles.iconBtn}>
+              <Ionicons name="contract-outline" size={20} color="#fff" />
+            </Pressable>
             <Pressable testID="editor-undo-button" onPress={undo} disabled={!canUndo} style={[styles.iconBtn, !canUndo && { opacity: 0.35 }]}>
               <Ionicons name="arrow-undo" size={22} color="#fff" />
             </Pressable>
@@ -334,62 +546,90 @@ export default function Editor() {
           </View>
         </View>
 
-        <View
-          style={styles.canvasWrap}
-          onLayout={(e) => setContainerSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
-          {...pan.panHandlers}
-        >
-          <ViewShot
-            ref={shotRef as any}
-            style={[
-              styles.shotArea,
-              { left: displayed.x, top: displayed.y, width: displayed.w, height: displayed.h },
-            ]}
-            options={{ format: "jpg", quality: 0.92 }}
+        <GestureDetector gesture={composed}>
+          <View
+            style={styles.canvasWrap}
+            onLayout={(e) => setContainerSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
+            collapsable={false}
           >
-            <Image
-              source={{ uri: imageUri }}
-              style={styles.image}
-              onLoad={(e) => {
-                const src = e.nativeEvent.source;
-                if (src && src.width && src.height && (!imageDims.w || imageDims.w === 1080)) {
-                  setImageDims({ w: src.width, h: src.height });
-                }
-              }}
-              resizeMode="cover"
-            />
-            <Svg
-              width={displayed.w}
-              height={displayed.h}
-              style={StyleSheet.absoluteFill}
-              pointerEvents="none"
+            <Animated.View
+              style={[
+                { position: "absolute", left: displayed.x, top: displayed.y, width: displayed.w, height: displayed.h },
+                animatedStyle,
+              ]}
+              collapsable={false}
             >
-              <G transform={`translate(${-displayed.x} ${-displayed.y})`}>
-                {[...elements, ...(draft ? [draft] : [])].map((el) => renderElement(el))}
-              </G>
-            </Svg>
-
-            {/* GPS stamp overlay (inside captured area) */}
-            {stampText ? (
               <View
-                style={[styles.stamp, { left: 8, bottom: 8 }]}
-                pointerEvents="none"
-                testID="gps-stamp-overlay"
+                ref={shotRef as any}
+                style={[styles.shotArea, { width: displayed.w, height: displayed.h }]}
+                collapsable={false}
               >
-                <Text style={styles.stampText}>{stampText}</Text>
-              </View>
-            ) : null}
+                <ExpoImage
+                  source={{ uri: imageUri }}
+                  style={styles.image}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  onLoad={(e) => {
+                    const src = e?.source;
+                    if (src?.width && src?.height && (imageDims.w === 1080 || imageDims.h === 1440)) {
+                      setImageDims({ w: src.width, h: src.height });
+                    }
+                  }}
+                />
+                <Svg
+                  width={displayed.w}
+                  height={displayed.h}
+                  style={[StyleSheet.absoluteFill, { pointerEvents: "none" }]}
+                >
+                  <G transform={`translate(${-displayed.x} ${-displayed.y})`}>
+                    {[...elements, ...(draft ? [draft] : [])].map((el) =>
+                      renderElement(el, el.id === selectedId),
+                    )}
+                  </G>
+                </Svg>
 
-            {/* Watermark overlay */}
-            {watermarkLines.length > 0 ? (
-              <View style={[styles.watermark]} pointerEvents="none" testID="watermark-overlay">
-                {watermarkLines.map((line, i) => (
-                  <Text key={i} style={styles.watermarkText}>{line}</Text>
-                ))}
+                {stampText ? (
+                  <View
+                    style={[styles.stamp, { left: 8, bottom: 8 }]}
+                    pointerEvents="none"
+                    testID="gps-stamp-overlay"
+                  >
+                    <Text style={styles.stampText}>{stampText}</Text>
+                  </View>
+                ) : null}
+
+                {watermarkLines.length > 0 ? (
+                  <View style={styles.watermark} pointerEvents="none" testID="watermark-overlay">
+                    {watermarkLines.map((line, i) => (
+                      <Text key={i} style={styles.watermarkText}>{line}</Text>
+                    ))}
+                  </View>
+                ) : null}
               </View>
-            ) : null}
-          </ViewShot>
-        </View>
+            </Animated.View>
+          </View>
+        </GestureDetector>
+
+        {/* Selected element quick actions */}
+        {selectedEl ? (
+          <View style={styles.selectionBar} testID="selection-toolbar">
+            <Text style={styles.selectionLabel}>
+              {selectedEl.type.toUpperCase()} selected
+            </Text>
+            <View style={{ flexDirection: "row", gap: 6 }}>
+              {selectedEl.type === "text" ? (
+                <Pressable testID="edit-text-button" onPress={editSelectedText} style={styles.selBtn}>
+                  <Ionicons name="create-outline" size={18} color="#fff" />
+                  <Text style={styles.selBtnText}>Edit</Text>
+                </Pressable>
+              ) : null}
+              <Pressable testID="delete-selected-button" onPress={deleteSelected} style={[styles.selBtn, { backgroundColor: "rgba(255,80,80,0.25)" }]}>
+                <Ionicons name="trash-outline" size={18} color="#fff" />
+                <Text style={styles.selBtnText}>Delete</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
 
         {/* Toolbar */}
         <View style={styles.toolbarWrap}>
@@ -402,8 +642,17 @@ export default function Editor() {
               <Pressable
                 key={t.tool}
                 testID={`tool-${t.tool}`}
-                onPress={() => setTool(t.tool)}
-                style={[styles.toolBtn, { borderColor: tool === t.tool ? annotationPalette[color] : "rgba(255,255,255,0.15)", backgroundColor: tool === t.tool ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.35)" }]}
+                onPress={() => {
+                  setTool(t.tool);
+                  if (t.tool !== "select") setSelectedId(null);
+                }}
+                style={[
+                  styles.toolBtn,
+                  {
+                    borderColor: tool === t.tool ? annotationPalette[color] : "rgba(255,255,255,0.15)",
+                    backgroundColor: tool === t.tool ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.35)",
+                  },
+                ]}
               >
                 <Ionicons name={t.icon} size={20} color="#fff" />
                 <Text style={styles.toolLabel}>{t.label}</Text>
@@ -433,9 +682,9 @@ export default function Editor() {
                     key={s}
                     testID={`text-size-${s}`}
                     onPress={() => setSize(s)}
-                    style={[styles.sizeBtn, size === s && { backgroundColor: "rgba(255,255,255,0.2)" }]}
+                    style={[styles.sizeBtn, size === s && { backgroundColor: "rgba(255,255,255,0.25)" }]}
                   >
-                    <Text style={{ color: "#fff", fontWeight: "600", fontSize: 13 }}>{s}</Text>
+                    <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>{s}</Text>
                   </Pressable>
                 ))}
               </View>
@@ -448,13 +697,24 @@ export default function Editor() {
                     key={w}
                     testID={`stroke-${w}`}
                     onPress={() => setStrokeWidth(w)}
-                    style={[styles.sizeBtn, strokeWidth === w && { backgroundColor: "rgba(255,255,255,0.2)" }]}
+                    style={[styles.sizeBtn, strokeWidth === w && { backgroundColor: "rgba(255,255,255,0.25)" }]}
                   >
                     <View style={{ width: 14, height: w, backgroundColor: "#fff", borderRadius: w / 2 }} />
                   </Pressable>
                 ))}
               </View>
             ) : null}
+          </View>
+
+          <View style={styles.hintRow}>
+            <Ionicons name="information-circle-outline" size={13} color="rgba(255,255,255,0.6)" />
+            <Text style={styles.hintText}>
+              {tool === "select"
+                ? "Tap to select • Drag to move"
+                : tool === "text"
+                ? "Tap to add • Tap existing text to edit"
+                : "Pinch with 2 fingers to zoom"}
+            </Text>
           </View>
 
           <View style={styles.actionsRow}>
@@ -483,7 +743,9 @@ export default function Editor() {
       <Modal visible={!!textModal} transparent animationType="fade" onRequestClose={() => setTextModal(null)}>
         <View style={styles.modalBackdrop}>
           <View style={[styles.modalCard, { backgroundColor: colors.surface }]}>
-            <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Add Text</Text>
+            <Text style={[styles.modalTitle, { color: colors.onSurface }]}>
+              {textModal?.editingId ? "Edit Text" : "Add Text"}
+            </Text>
             <TextInput
               testID="text-input-field"
               autoFocus
@@ -494,12 +756,38 @@ export default function Editor() {
               style={[styles.modalInput, { color: colors.onSurface, borderColor: colors.outline }]}
               multiline
             />
+            <View style={{ flexDirection: "row", gap: 6, marginTop: 4 }}>
+              {(["S", "M", "L"] as Size[]).map((s) => (
+                <Pressable
+                  key={s}
+                  testID={`modal-size-${s}`}
+                  onPress={() => setSize(s)}
+                  style={[styles.modalSizeBtn, { borderColor: size === s ? colors.primary : colors.outline }]}
+                >
+                  <Text style={{ color: size === s ? colors.primary : colors.onSurface, fontWeight: "700" }}>{s}</Text>
+                </Pressable>
+              ))}
+              <View style={{ flex: 1 }} />
+              {COLOR_ORDER.map((c) => (
+                <Pressable
+                  key={c}
+                  testID={`modal-color-${c}`}
+                  onPress={() => setColor(c)}
+                  style={[
+                    styles.modalColorDot,
+                    { backgroundColor: annotationPalette[c], borderColor: color === c ? colors.onSurface : colors.outline },
+                  ]}
+                />
+              ))}
+            </View>
             <View style={styles.modalActions}>
               <Pressable testID="text-cancel-button" onPress={() => setTextModal(null)} style={styles.modalBtn}>
                 <Text style={{ color: colors.onSurfaceMuted, fontWeight: "600" }}>Cancel</Text>
               </Pressable>
               <Pressable testID="text-add-button" onPress={commitTextModal} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
-                <Text style={{ color: colors.onPrimary, fontWeight: "600" }}>Add</Text>
+                <Text style={{ color: colors.onPrimary, fontWeight: "600" }}>
+                  {textModal?.editingId ? "Update" : "Add"}
+                </Text>
               </Pressable>
             </View>
           </View>
@@ -533,30 +821,38 @@ export default function Editor() {
   );
 }
 
-function renderElement(el: Element) {
+// Hint to silence "Image is unused" if linter complains
+
+function renderElement(el: Element, selected: boolean) {
+  const halo = selected ? <SelectionHalo el={el} /> : null;
   switch (el.type) {
     case "text":
       return (
-        <SvgText
-          key={el.id}
-          x={el.x}
-          y={el.y}
-          fill={el.color}
-          stroke="rgba(0,0,0,0.6)"
-          strokeWidth={el.size === "L" ? 0.8 : 0.5}
-          fontSize={SIZE_PX[el.size]}
-          fontWeight="700"
-        >
-          {el.text}
-        </SvgText>
+        <G key={el.id}>
+          {halo}
+          <SvgText
+            x={el.x}
+            y={el.y}
+            fill={el.color}
+            stroke="rgba(0,0,0,0.7)"
+            strokeWidth={el.size === "L" ? 1 : 0.6}
+            fontSize={SIZE_PX[el.size]}
+            fontWeight="700"
+          >
+            {el.text}
+          </SvgText>
+        </G>
       );
     case "circle":
       return (
-        <Circle key={el.id} cx={el.cx} cy={el.cy} r={el.r} stroke={el.color} strokeWidth={3} fill="none" />
+        <G key={el.id}>
+          {halo}
+          <Circle cx={el.cx} cy={el.cy} r={el.r} stroke={el.color} strokeWidth={3} fill="none" />
+        </G>
       );
     case "arrow": {
       const angle = Math.atan2(el.y2 - el.y1, el.x2 - el.x1);
-      const headLen = 14;
+      const headLen = 16;
       const a = angle - Math.PI / 7;
       const b = angle + Math.PI / 7;
       const hx1 = el.x2 - headLen * Math.cos(a);
@@ -565,29 +861,66 @@ function renderElement(el: Element) {
       const hy2 = el.y2 - headLen * Math.sin(b);
       return (
         <G key={el.id}>
-          <Line x1={el.x1} y1={el.y1} x2={el.x2} y2={el.y2} stroke={el.color} strokeWidth={3} strokeLinecap="round" />
+          {halo}
+          <Line x1={el.x1} y1={el.y1} x2={el.x2} y2={el.y2} stroke={el.color} strokeWidth={3.5} strokeLinecap="round" />
           <Polygon points={`${el.x2},${el.y2} ${hx1},${hy1} ${hx2},${hy2}`} fill={el.color} />
         </G>
       );
     }
     case "rectangle":
       return (
-        <Rect key={el.id} x={el.x} y={el.y} width={el.w} height={el.h} stroke={el.color} strokeWidth={3} fill="none" />
+        <G key={el.id}>
+          {halo}
+          <Rect x={el.x} y={el.y} width={el.w} height={el.h} stroke={el.color} strokeWidth={3} fill="none" />
+        </G>
       );
     case "freedraw":
       return (
-        <Path key={el.id} d={el.d} stroke={el.color} strokeWidth={el.strokeWidth} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        <G key={el.id}>
+          {halo}
+          <Path d={el.d} stroke={el.color} strokeWidth={el.strokeWidth} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        </G>
       );
     case "marker":
       return (
         <G key={el.id}>
-          <Circle cx={el.x} cy={el.y} r={14} fill={el.color} stroke="rgba(0,0,0,0.5)" strokeWidth={1.5} />
-          <SvgText x={el.x} y={el.y + 5} fontSize={14} fontWeight="700" fill="#000" textAnchor="middle">
+          {halo}
+          <Circle cx={el.x} cy={el.y} r={16} fill={el.color} stroke="rgba(0,0,0,0.6)" strokeWidth={1.5} />
+          <SvgText x={el.x} y={el.y + 6} fontSize={16} fontWeight="700" fill="#000" textAnchor="middle">
             {el.n}
           </SvgText>
         </G>
       );
   }
+}
+
+function SelectionHalo({ el }: { el: Element }) {
+  // Lightweight highlight ring around an element so the user knows it's selected
+  const stroke = "rgba(140, 200, 255, 0.9)";
+  if (el.type === "text") {
+    const fs = SIZE_PX[el.size];
+    const w = el.text.length * fs * 0.6 + 8;
+    return (
+      <Rect x={el.x - 4} y={el.y - fs} width={w} height={fs + 8} stroke={stroke} strokeDasharray="4 3" strokeWidth={1.5} fill="none" />
+    );
+  }
+  if (el.type === "circle") {
+    return <Circle cx={el.cx} cy={el.cy} r={el.r + 8} stroke={stroke} strokeDasharray="4 3" strokeWidth={1.5} fill="none" />;
+  }
+  if (el.type === "rectangle") {
+    return <Rect x={el.x - 6} y={el.y - 6} width={el.w + 12} height={el.h + 12} stroke={stroke} strokeDasharray="4 3" strokeWidth={1.5} fill="none" />;
+  }
+  if (el.type === "arrow") {
+    const minX = Math.min(el.x1, el.x2) - 10;
+    const maxX = Math.max(el.x1, el.x2) + 10;
+    const minY = Math.min(el.y1, el.y2) - 10;
+    const maxY = Math.max(el.y1, el.y2) + 10;
+    return <Rect x={minX} y={minY} width={maxX - minX} height={maxY - minY} stroke={stroke} strokeDasharray="4 3" strokeWidth={1.5} fill="none" />;
+  }
+  if (el.type === "marker") {
+    return <Circle cx={el.x} cy={el.y} r={22} stroke={stroke} strokeDasharray="4 3" strokeWidth={1.5} fill="none" />;
+  }
+  return null;
 }
 
 const styles = StyleSheet.create({
@@ -609,8 +942,8 @@ const styles = StyleSheet.create({
     marginHorizontal: 2,
   },
   headerNum: { color: "#fff", fontSize: 16, fontWeight: "700", letterSpacing: 1 },
-  canvasWrap: { flex: 1, backgroundColor: "#000" },
-  shotArea: { position: "absolute", backgroundColor: "#000", overflow: "hidden" },
+  canvasWrap: { flex: 1, backgroundColor: "#000", overflow: "hidden" },
+  shotArea: { backgroundColor: "#000", overflow: "hidden" },
   image: { width: "100%", height: "100%" },
   stamp: {
     position: "absolute",
@@ -623,11 +956,32 @@ const styles = StyleSheet.create({
   stampText: { color: "#fff", fontSize: 10, fontFamily: "monospace" },
   watermark: { position: "absolute", top: 8, right: 8, alignItems: "flex-end" },
   watermarkText: {
-    color: "rgba(255,255,255,0.75)",
+    color: "rgba(255,255,255,0.78)",
     fontSize: 11,
     fontWeight: "600",
   },
-  toolbarWrap: { backgroundColor: "rgba(0,0,0,0.55)", paddingTop: spacing.sm, paddingBottom: spacing.sm },
+  selectionBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    backgroundColor: "rgba(140,200,255,0.18)",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(140,200,255,0.35)",
+  },
+  selectionLabel: { color: "#fff", fontSize: 12, fontWeight: "700", letterSpacing: 0.5 },
+  selBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radius.full,
+    backgroundColor: "rgba(255,255,255,0.18)",
+  },
+  selBtnText: { color: "#fff", fontWeight: "600", fontSize: 13 },
+  toolbarWrap: { backgroundColor: "rgba(0,0,0,0.6)", paddingTop: spacing.sm, paddingBottom: spacing.sm },
   toolBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -654,6 +1008,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "rgba(255,255,255,0.08)",
   },
+  hintRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: spacing.lg,
+    paddingTop: 6,
+  },
+  hintText: { color: "rgba(255,255,255,0.65)", fontSize: 11 },
   actionsRow: {
     flexDirection: "row",
     paddingHorizontal: spacing.lg,
@@ -693,6 +1055,15 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     fontSize: 15,
   },
+  modalSizeBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalColorDot: { width: 26, height: 26, borderRadius: 13, borderWidth: 2 },
   modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: spacing.sm },
   modalBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
 });

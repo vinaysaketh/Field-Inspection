@@ -1,0 +1,188 @@
+{
+  "project_name": "FieldSnap Pro",
+  "archetype": "4 (Swiss & High-Contrast / MD3 Functional)",
+  "theme": "hybrid_fullstack_mobile",
+  "colors": {
+    "light": {
+      "primary": "#0A2463",
+      "primary_container": "#DCE1FF",
+      "on_primary": "#FFFFFF",
+      "background": "#F8F9FA",
+      "surface": "#FFFFFF",
+      "on_surface": "#1E1E24",
+      "outline": "#74777F",
+      "error": "#BA1A1A",
+      "gps_stamp_bg": "rgba(10, 36, 99, 0.85)"
+    },
+    "dark": {
+      "primary": "#8CB8FF",
+      "primary_container": "#0A2463",
+      "on_primary": "#002F68",
+      "background": "#121212",
+      "surface": "#1E1E1E",
+      "on_surface": "#E2E2E6",
+      "outline": "#8E9099",
+      "error": "#FFB4AB",
+      "gps_stamp_bg": "rgba(0, 0, 0, 0.85)"
+    },
+    "annotation_palette": {
+      "red": "#FF3B30",
+      "yellow": "#FFCC00",
+      "green": "#34C759",
+      "blue": "#007AFF",
+      "white": "#FFFFFF"
+    }
+  },
+  "typography": {
+    "font_family": "System (Roboto on Android, San Francisco on iOS)",
+    "scale": {
+      "h1": {
+        "size": "32px",
+        "weight": "700",
+        "tracking": "tight"
+      },
+      "h2": {
+        "size": "24px",
+        "weight": "600",
+        "tracking": "tight"
+      },
+      "h3": {
+        "size": "20px",
+        "weight": "600"
+      },
+      "body_large": {
+        "size": "16px",
+        "weight": "400"
+      },
+      "body_small": {
+        "size": "14px",
+        "weight": "400"
+      },
+      "label": {
+        "size": "12px",
+        "weight": "600",
+        "tracking": "wider",
+        "text_transform": "uppercase"
+      }
+    }
+  },
+  "spacing": {
+    "touch_target_min": "48px",
+    "screen_padding": "16px",
+    "element_gap": "12px",
+    "section_gap": "24px",
+    "radius_small": "4px",
+    "radius_medium": "12px",
+    "radius_large": "24px",
+    "radius_full": "9999px"
+  },
+  "components": {
+    "primary_cta_fab": {
+      "style": "Large floating action button centered at the bottom or prominent on screen. Minimum 64x64px.",
+      "background": "primary",
+      "icon_color": "on_primary",
+      "elevation": "shadow-lg",
+      "radius": "radius_full"
+    },
+    "secondary_button": {
+      "style": "Outlined or tonal button.",
+      "border": "1px solid outline",
+      "height": "48px",
+      "radius": "radius_full"
+    },
+    "annotation_toolbar": {
+      "style": "Horizontal scrollable or grid tool palette overlay.",
+      "background": "surface",
+      "opacity": "0.95",
+      "blur": "backdrop-blur-md (if supported, else solid)",
+      "padding": "8px",
+      "radius": "radius_medium",
+      "position": "bottom anchored above standard bottom sheet"
+    },
+    "color_swatch_picker": {
+      "style": "Horizontal row of circular color buttons.",
+      "size": "36x36px",
+      "border": "2px solid white on active state",
+      "shadow": "subtle drop shadow for visibility on images"
+    },
+    "bottom_sheet": {
+      "style": "Standard MD3 modal bottom sheet. Used for settings, export options, or tool expansion.",
+      "background": "surface",
+      "drag_handle": "4px height, 32px width, color: outline, radius: 2px",
+      "border_top_radius": "radius_large"
+    },
+    "list_cards": {
+      "style": "Flat cards with subtle 1px border. No heavy drop shadows to keep UI fast and clean.",
+      "background": "surface",
+      "border": "1px solid outline",
+      "radius": "radius_medium",
+      "padding": "16px"
+    },
+    "gallery_thumbnail_grid": {
+      "style": "3-column grid",
+      "gap": "2px",
+      "overlay": "Small observation number badge (e.g. OBS-0001) at bottom left of thumbnail, background: rgba(0,0,0,0.6)"
+    },
+    "gps_location_stamp_overlay": {
+      "position": "Bottom right or bottom left of the captured image.",
+      "background": "gps_stamp_bg",
+      "text_color": "#FFFFFF",
+      "padding": "8px 12px",
+      "radius": "radius_small",
+      "typography": "body_small, monospace for coordinates",
+      "content_layout": "Column: Timestamp -> Coordinates -> Location/Address"
+    },
+    "watermark": {
+      "position": "Top right or center with low opacity.",
+      "color": "rgba(255,255,255,0.3)",
+      "typography": "h2, bold"
+    },
+    "form_inputs": {
+      "style": "MD3 outlined text field.",
+      "height": "56px",
+      "radius": "radius_small",
+      "border": "1px solid outline",
+      "focus_border": "2px solid primary"
+    }
+  },
+  "media": {
+    "images": [
+      {
+        "category": "sample_capture_1",
+        "url": "https://images.pexels.com/photos/5767595/pexels-photo-5767595.jpeg",
+        "description": "Electrical switchboard, used to test annotation and gallery grid."
+      },
+      {
+        "category": "sample_capture_2",
+        "url": "https://images.pexels.com/photos/28265032/pexels-photo-28265032.jpeg",
+        "description": "Complex electrical wiring for testing detailed drawings."
+      },
+      {
+        "category": "sample_capture_3",
+        "url": "https://images.unsplash.com/photo-1620203853151-496c7228306c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzh8MHwxfHNlYXJjaHwyfHxpbmR1c3RyaWFsJTIwcGlwZXN8ZW58MHx8fHwxNzgyMTQ1ODQzfDA&ixlib=rb-4.1.0&q=85",
+        "description": "Industrial machine pipes."
+      },
+      {
+        "category": "sample_capture_4",
+        "url": "https://images.pexels.com/photos/36824351/pexels-photo-36824351.jpeg",
+        "description": "Intricate network of stainless steel pipes."
+      },
+      {
+        "category": "sample_capture_5",
+        "url": "https://images.pexels.com/photos/15866139/pexels-photo-15866139.jpeg",
+        "description": "Factory machinery equipment."
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Use React Native components or React Native Paper for Material Design 3 UI compliance. Develop using .js files rather than .tsx files.",
+    "Prioritize application speed: minimize animations, avoid complex nested views where possible.",
+    "Ensure ALL interactive elements (buttons, inputs, toggles, gallery items) have a minimum touch target size of 48x48px.",
+    "Implement `data-testid` on all interactive UI components, e.g., `data-testid=\"capture-photo-button\"`, `data-testid=\"annotation-tool-circle\"`.",
+    "Annotation Layer: Keep the annotation state separate from the image state until the user explicitly saves/exports.",
+    "Offline-First: If the network is unavailable for reverse geocoding, save the raw lat/long and queue a background task to resolve the address once reconnected.",
+    "Use the provided `annotation_palette` colors exactly as specified to ensure high contrast against complex photo backgrounds.",
+    "The UI is purely functional. Do not add decorative shadows or generic stock photos. Use the industrial sample photos provided for gallery/mockups.",
+    "Implement light and dark mode respecting the device's system preference."
+  ]
+}

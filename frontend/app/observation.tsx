@@ -26,17 +26,16 @@ export default function ObservationDetail() {
   const [obs, setObs] = useState<Observation | null>(null);
   const [renameModal, setRenameModal] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
-  const [shareSheet, setShareSheet] = useState<"hidden" | "normal" | "like">("hidden");
+  const [showLikePrompt, setShowLikePrompt] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       if (id) {
         getObservation(id).then(setObs);
       }
-      // Auto-open the celebratory "Like & Share" sheet when crossing 5 annotations
       shouldShowSharePrompt().then((show) => {
         if (show) {
-          setShareSheet("like");
+          setShowLikePrompt(true);
           markSharePrompted();
         }
       });
@@ -45,14 +44,10 @@ export default function ObservationDetail() {
 
   const stamp = obs ? formatLocationStamp(obs.location, obs.template, "", new Date(obs.timestamp)) : "";
 
-  const onExport = async () => {
-    setShareSheet("normal");
-  };
-
-  const shareAsImage = async () => {
+  // Tap the header share icon → open system share dialog directly (no in-between modal,
+  // because iOS UIActivityViewController fails to present over an RN <Modal>).
+  const onShare = async () => {
     if (!obs) return;
-    setShareSheet("hidden");
-    await new Promise((r) => setTimeout(r, 350));
     try {
       const available = await Sharing.isAvailableAsync();
       if (!available) {
@@ -111,7 +106,7 @@ export default function ObservationDetail() {
         </Pressable>
         <Pressable
           testID="obs-export-button"
-          onPress={onExport}
+          onPress={onShare}
           disabled={!obs}
           style={[styles.iconBtn, { backgroundColor: colors.primary, borderColor: colors.primary, opacity: !obs ? 0.6 : 1 }]}
         >
@@ -195,60 +190,43 @@ export default function ObservationDetail() {
       </Modal>
 
       <Modal
-        visible={shareSheet !== "hidden"}
+        visible={showLikePrompt}
         transparent
-        animationType="slide"
-        onRequestClose={() => setShareSheet("hidden")}
+        animationType="fade"
+        onRequestClose={() => setShowLikePrompt(false)}
       >
-        <Pressable style={styles.sheetBackdrop} onPress={() => setShareSheet("hidden")}>
-          <Pressable
-            style={[styles.sheet, { backgroundColor: colors.surface }]}
-            onPress={(e) => e.stopPropagation()}
-            testID="share-sheet"
-          >
-            <View style={styles.sheetHandle} />
-            {shareSheet === "like" ? (
-              <View style={{ alignItems: "center", gap: 6, paddingHorizontal: spacing.lg, paddingBottom: spacing.md }}>
-                <Ionicons name="heart" size={36} color={colors.primary} />
-                <Text style={[styles.sheetTitle, { color: colors.onSurface }]}>You{`'`}re on a roll!</Text>
-                <Text style={{ color: colors.onSurfaceMuted, textAlign: "center", fontSize: 13 }}>
-                  You{`'`}ve annotated 5 photos. If FieldSnap Pro is helping your work, please share it with a teammate.
-                </Text>
-              </View>
-            ) : (
-              <Text style={[styles.sheetTitle, { color: colors.onSurface, marginBottom: spacing.sm }]}>
-                Share this observation
+        <View style={styles.sheetBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: colors.surface, maxWidth: 360 }]} testID="like-prompt">
+            <View style={{ alignItems: "center", gap: 6 }}>
+              <Ionicons name="heart" size={36} color={colors.primary} />
+              <Text style={[styles.sheetTitle, { color: colors.onSurface }]}>You{`'`}re on a roll!</Text>
+              <Text style={{ color: colors.onSurfaceMuted, textAlign: "center", fontSize: 13 }}>
+                You{`'`}ve annotated 5 photos. If FieldSnap Pro is helping your work, please share it with a teammate.
               </Text>
-            )}
-
-            <Pressable
-              testID="share-image-button"
-              onPress={shareAsImage}
-              style={[styles.sheetRow, { borderColor: colors.outline }]}
-            >
-              <View style={[styles.sheetIcon, { backgroundColor: colors.primaryContainer }]}>
-                <Ionicons name="image" size={22} color={colors.primary} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.sheetLabel, { color: colors.onSurface }]}>Share Image</Text>
-                <Text style={[styles.sheetSub, { color: colors.onSurfaceMuted }]}>
-                  Send the annotated photo via WhatsApp, Mail, Files…
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceMuted} />
-            </Pressable>
-
-            <Pressable
-              testID="share-dismiss-button"
-              onPress={() => setShareSheet("hidden")}
-              style={{ paddingVertical: spacing.md, alignItems: "center" }}
-            >
-              <Text style={{ color: colors.onSurfaceMuted, fontWeight: "600" }}>
-                {shareSheet === "like" ? "Maybe later" : "Cancel"}
-              </Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
+            </View>
+            <View style={styles.modalActions}>
+              <Pressable
+                testID="like-dismiss-button"
+                onPress={() => setShowLikePrompt(false)}
+                style={styles.modalBtn}
+              >
+                <Text style={{ color: colors.onSurfaceMuted, fontWeight: "600" }}>Maybe later</Text>
+              </Pressable>
+              <Pressable
+                testID="like-share-button"
+                onPress={async () => {
+                  setShowLikePrompt(false);
+                  // Wait for the prompt's fade-out so iOS can present share UI
+                  await new Promise((r) => setTimeout(r, 350));
+                  await onShare();
+                }}
+                style={[styles.modalBtn, { backgroundColor: colors.primary }]}
+              >
+                <Text style={{ color: colors.onPrimary, fontWeight: "600" }}>Share now</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
       </Modal>
     </SafeAreaView>
   );

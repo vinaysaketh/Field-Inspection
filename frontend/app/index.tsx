@@ -1,30 +1,215 @@
-import { Text, View, StyleSheet, Image } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
+import { FlatList, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
 
-const EXPO_PUBLIC_BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+import { loadObservations } from "@/src/store/observations";
+import { loadSettings } from "@/src/store/settings";
+import { Observation, AppSettings } from "@/src/store/types";
+import { useTheme } from "@/src/theme/ThemeProvider";
+import { spacing, radius, typography } from "@/src/theme/tokens";
+import { processGeocodeQueue } from "@/src/utils/location";
+import { hasPin } from "@/src/utils/auth";
 
-export default function Index() {
-  console.log(EXPO_PUBLIC_BACKEND_URL, "EXPO_PUBLIC_BACKEND_URL");
+export default function Home() {
+  const { colors, scheme } = useTheme();
+  const [recent, setRecent] = useState<Observation[]>([]);
+  const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [unlocked, setUnlocked] = useState(false);
+
+  // Gate: route to lock screen if app lock enabled & no session unlock yet.
+  useEffect(() => {
+    (async () => {
+      const s = await loadSettings();
+      const pin = await hasPin();
+      if (s.appLockEnabled && pin) {
+        router.replace("/lock");
+      } else {
+        setUnlocked(true);
+      }
+    })();
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      (async () => {
+        const [obs, s] = await Promise.all([loadObservations(), loadSettings()]);
+        setRecent(obs.slice(0, 5));
+        setSettings(s);
+        // Best effort: attempt to resolve pending addresses in background.
+        processGeocodeQueue().catch(() => {});
+      })();
+    }, []),
+  );
+
+  if (!unlocked) return <View style={{ flex: 1, backgroundColor: colors.background }} />;
 
   return (
-    <View style={styles.container}>
-      <Image
-        source={require("../assets/images/app-image.png")}
-        style={styles.image}
+    <SafeAreaView style={[styles.root, { backgroundColor: colors.background }]} edges={["top", "left", "right"]}>
+      <StatusBar style={scheme === "dark" ? "light" : "dark"} />
+      <View style={styles.header}>
+        <View>
+          <Text style={[styles.title, { color: colors.onSurface }]}>FieldSnap Pro</Text>
+          <Text style={[styles.subtitle, { color: colors.onSurfaceMuted }]}>
+            {settings?.company || "Field Documentation"}
+          </Text>
+        </View>
+        <Pressable
+          testID="open-settings-button"
+          accessibilityLabel="Open settings"
+          onPress={() => router.push("/settings")}
+          style={({ pressed }) => [
+            styles.iconBtn,
+            { backgroundColor: colors.surface, borderColor: colors.outline, opacity: pressed ? 0.7 : 1 },
+          ]}
+        >
+          <Ionicons name="settings-outline" size={22} color={colors.onSurface} />
+        </Pressable>
+      </View>
+
+      <View style={styles.actionRow}>
+        <Pressable
+          testID="capture-photo-button"
+          onPress={() => router.push("/camera")}
+          style={({ pressed }) => [
+            styles.primaryCard,
+            { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
+          ]}
+        >
+          <Ionicons name="camera" size={36} color={colors.onPrimary} />
+          <Text style={[styles.primaryLabel, { color: colors.onPrimary }]}>Capture Photo</Text>
+          <Text style={[styles.primarySub, { color: colors.onPrimary }]}>Tap to start</Text>
+        </Pressable>
+
+        <Pressable
+          testID="open-gallery-button"
+          onPress={() => router.push("/gallery")}
+          style={({ pressed }) => [
+            styles.secondaryCard,
+            { backgroundColor: colors.surface, borderColor: colors.outline, opacity: pressed ? 0.85 : 1 },
+          ]}
+        >
+          <Ionicons name="images-outline" size={28} color={colors.primary} />
+          <Text style={[styles.secondaryLabel, { color: colors.onSurface }]}>Gallery</Text>
+          <Text style={[styles.secondarySub, { color: colors.onSurfaceMuted }]}>{recent.length === 0 ? "Empty" : "View all"}</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.sectionHeader}>
+        <Text style={[styles.sectionTitle, { color: colors.onSurfaceMuted }]}>RECENT OBSERVATIONS</Text>
+      </View>
+
+      <FlatList
+        testID="recent-observations-list"
+        data={recent}
+        keyExtractor={(it) => it.id}
+        contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.xl }}
+        ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
+        ListEmptyComponent={
+          <View style={[styles.empty, { borderColor: colors.outline }]}>
+            <Ionicons name="document-outline" size={32} color={colors.onSurfaceMuted} />
+            <Text style={[styles.emptyText, { color: colors.onSurfaceMuted }]}>
+              No observations yet. Tap Capture Photo to start.
+            </Text>
+          </View>
+        }
+        renderItem={({ item }) => (
+          <Pressable
+            testID={`recent-item-${item.number}`}
+            onPress={() => router.push({ pathname: "/observation", params: { id: item.id } })}
+            style={({ pressed }) => [
+              styles.recentRow,
+              { backgroundColor: colors.surface, borderColor: colors.outline, opacity: pressed ? 0.85 : 1 },
+            ]}
+          >
+            <Image source={{ uri: item.imageUri }} style={styles.recentThumb} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.recentNumber, { color: colors.onSurface }]}>{item.number}</Text>
+              <Text style={[styles.recentMeta, { color: colors.onSurfaceMuted }]} numberOfLines={1}>
+                {item.project || "Untitled project"}
+              </Text>
+              <Text style={[styles.recentMeta, { color: colors.onSurfaceMuted }]}>
+                {new Date(item.timestamp).toLocaleString()}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceMuted} />
+          </Pressable>
+        )}
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#0c0c0c",
+  root: { flex: 1 },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.lg,
+  },
+  title: { ...typography.h2 },
+  subtitle: { ...typography.body, marginTop: 2 },
+  iconBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.full,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  image: {
-    width: "100%",
-    height: "100%",
-    resizeMode: "contain",
+  actionRow: {
+    flexDirection: "row",
+    paddingHorizontal: spacing.lg,
+    gap: spacing.md,
   },
+  primaryCard: {
+    flex: 1.4,
+    borderRadius: radius.md,
+    padding: spacing.lg,
+    minHeight: 140,
+    justifyContent: "space-between",
+  },
+  primaryLabel: { ...typography.h3, marginTop: spacing.sm },
+  primarySub: { fontSize: 13, opacity: 0.85 },
+  secondaryCard: {
+    flex: 1,
+    borderRadius: radius.md,
+    padding: spacing.lg,
+    borderWidth: 1,
+    justifyContent: "space-between",
+    minHeight: 140,
+  },
+  secondaryLabel: { ...typography.h3, marginTop: spacing.sm },
+  secondarySub: { fontSize: 13 },
+  sectionHeader: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.sm,
+  },
+  sectionTitle: { ...typography.label },
+  recentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  recentThumb: { width: 56, height: 56, borderRadius: 6, backgroundColor: "#000" },
+  recentNumber: { ...typography.bodyLarge, fontWeight: "600" },
+  recentMeta: { fontSize: 12, marginTop: 2 },
+  empty: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    padding: spacing.xl,
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  emptyText: { fontSize: 13, textAlign: "center" },
 });

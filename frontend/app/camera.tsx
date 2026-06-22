@@ -1,11 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View, ActivityIndicator } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Animated, { runOnJS, useSharedValue } from "react-native-reanimated";
+import Animated, { runOnJS, useAnimatedReaction, useSharedValue } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
@@ -27,16 +26,36 @@ export default function CameraScreen() {
   const [flash, setFlash] = useState<Flash>("off");
   const [busy, setBusy] = useState(false);
   const [zoom, setZoom] = useState(0); // 0..1 for expo-camera
+  const zoomSV = useSharedValue(0); // live, worklet-side value
   const savedZoom = useSharedValue(0);
+
+  // Bridge shared value → React state at most ~10×/sec to avoid
+  // thrashing the native CameraView (which crashes on rapid prop updates).
+  const lastBridgedRef = useRef(0);
+  const bridgeZoom = (v: number) => {
+    const now = Date.now();
+    if (now - lastBridgedRef.current < 100) return;
+    lastBridgedRef.current = now;
+    setZoom(v);
+  };
+  useAnimatedReaction(
+    () => zoomSV.value,
+    (v, prev) => {
+      if (prev !== null && Math.abs(v - (prev ?? 0)) < 0.01) return;
+      runOnJS(bridgeZoom)(v);
+    },
+  );
 
   const pinch = Gesture.Pinch()
     .onStart(() => {
-      savedZoom.value = zoom;
+      savedZoom.value = zoomSV.value;
     })
     .onUpdate((e) => {
-      // scale > 1 → zoom in, scale < 1 → zoom out
       const next = clamp(savedZoom.value + (e.scale - 1) * 0.25, 0, 1);
-      runOnJS(setZoom)(next);
+      zoomSV.value = next;
+    })
+    .onEnd(() => {
+      runOnJS(setZoom)(zoomSV.value);
     });
 
   if (!permission) {
@@ -91,13 +110,17 @@ export default function CameraScreen() {
 
   const pickFromGallery = async () => {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy require so the screen still works if module evaluation fails
+      const ImagePicker = require("expo-image-picker");
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!perm.granted) {
         toast.show("Photos permission denied", { kind: "error" });
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: "images",
+        mediaTypes: ImagePicker.MediaTypeOptions
+          ? ImagePicker.MediaTypeOptions.Images
+          : "images",
         quality: 1,
         exif: false,
       });
@@ -152,7 +175,11 @@ export default function CameraScreen() {
             <Pressable
               key={z}
               testID={`zoom-${Math.round((1 + z * 9))}x`}
-              onPress={() => setZoom(z)}
+              onPress={() => {
+                setZoom(z);
+                zoomSV.value = z;
+                savedZoom.value = z;
+              }}
               style={[
                 styles.zoomChip,
                 Math.abs(zoom - z) < 0.05 && { backgroundColor: "rgba(255,255,255,0.25)", borderColor: "#fff" },

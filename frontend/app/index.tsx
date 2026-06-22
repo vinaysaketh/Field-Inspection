@@ -50,13 +50,18 @@ export default function Home() {
 
   const pickFromGallery = async () => {
     try {
+      // Lazy require so a missing native module surfaces a clear error
+      // instead of crashing during module evaluation.
+      const ImagePicker = require("expo-image-picker");
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!perm.granted) {
         toast.show("Photos permission denied", { kind: "error" });
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: "images",
+        mediaTypes: ImagePicker.MediaTypeOptions
+          ? ImagePicker.MediaTypeOptions.Images
+          : "images",
         quality: 1,
         exif: false,
       });

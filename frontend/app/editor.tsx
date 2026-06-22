@@ -444,22 +444,22 @@ export default function Editor() {
   const save = async () => {
     if (!imageUri || saving) return;
     setSaving(true);
-    // Reset zoom for capture (capture pre-transform anyway, but make UI consistent)
-    scale.value = withTiming(1);
-    tx.value = withTiming(0);
-    ty.value = withTiming(0);
+    // Reset zoom & clear selection BEFORE capture; iOS refuses to snapshot a
+    // view with an active transform (`drawViewHierarchyInRect` fails). Give
+    // RN a couple of frames to commit the layout before we capture.
+    scale.value = 1;
+    tx.value = 0;
+    ty.value = 0;
     savedScale.value = 1;
     savedTx.value = 0;
     savedTy.value = 0;
     setSelectedId(null);
+    await new Promise((r) => setTimeout(r, 80));
     try {
       const captured = await captureRef(shotRef as any, {
         format: "jpg",
-        quality: 0.92,
+        quality: 0.95,
         result: "tmpfile",
-        // upscale snapshot to native image resolution for crisp output
-        width: imageDims.w,
-        height: imageDims.h,
       });
       const dir = `${FileSystem.documentDirectory}observations/`;
       await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});

@@ -18,14 +18,12 @@ import { Observation } from "@/src/store/types";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { radius, spacing, typography } from "@/src/theme/tokens";
 import { formatLocationStamp } from "@/src/utils/location";
-import { exportObservationsPdf } from "@/src/utils/pdf";
 
 export default function ObservationDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors, scheme } = useTheme();
   const toast = useToast();
   const [obs, setObs] = useState<Observation | null>(null);
-  const [exporting, setExporting] = useState(false);
   const [renameModal, setRenameModal] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [shareSheet, setShareSheet] = useState<"hidden" | "normal" | "like">("hidden");
@@ -54,8 +52,6 @@ export default function ObservationDetail() {
   const shareAsImage = async () => {
     if (!obs) return;
     setShareSheet("hidden");
-    // Wait for the modal's slide-out animation to finish so iOS can
-    // present UIActivityViewController without conflict.
     await new Promise((r) => setTimeout(r, 350));
     try {
       const available = await Sharing.isAvailableAsync();
@@ -70,21 +66,6 @@ export default function ObservationDetail() {
       });
     } catch (e: any) {
       toast.show("Share failed: " + (e?.message ?? "unknown"), { kind: "error" });
-    }
-  };
-
-  const shareAsPdf = async () => {
-    if (!obs) return;
-    setShareSheet("hidden");
-    await new Promise((r) => setTimeout(r, 350));
-    setExporting(true);
-    try {
-      await exportObservationsPdf([obs], obs.title || obs.number);
-      toast.show("PDF generated", { kind: "success" });
-    } catch (e: any) {
-      toast.show("Export failed: " + (e?.message ?? "unknown"), { kind: "error" });
-    } finally {
-      setExporting(false);
     }
   };
 
@@ -131,8 +112,8 @@ export default function ObservationDetail() {
         <Pressable
           testID="obs-export-button"
           onPress={onExport}
-          disabled={exporting || !obs}
-          style={[styles.iconBtn, { backgroundColor: colors.primary, borderColor: colors.primary, opacity: !obs || exporting ? 0.6 : 1 }]}
+          disabled={!obs}
+          style={[styles.iconBtn, { backgroundColor: colors.primary, borderColor: colors.primary, opacity: !obs ? 0.6 : 1 }]}
         >
           <Ionicons name="share-outline" size={20} color={colors.onPrimary} />
         </Pressable>
@@ -249,24 +230,10 @@ export default function ObservationDetail() {
                 <Ionicons name="image" size={22} color={colors.primary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.sheetLabel, { color: colors.onSurface }]}>Share as Image</Text>
-                <Text style={[styles.sheetSub, { color: colors.onSurfaceMuted }]}>Send the annotated JPG</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceMuted} />
-            </Pressable>
-
-            <Pressable
-              testID="share-pdf-button"
-              onPress={shareAsPdf}
-              disabled={exporting}
-              style={[styles.sheetRow, { borderColor: colors.outline, opacity: exporting ? 0.6 : 1 }]}
-            >
-              <View style={[styles.sheetIcon, { backgroundColor: colors.primaryContainer }]}>
-                <Ionicons name="document-text" size={22} color={colors.primary} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.sheetLabel, { color: colors.onSurface }]}>Share as PDF Report</Text>
-                <Text style={[styles.sheetSub, { color: colors.onSurfaceMuted }]}>Includes notes & GPS stamp</Text>
+                <Text style={[styles.sheetLabel, { color: colors.onSurface }]}>Share Image</Text>
+                <Text style={[styles.sheetSub, { color: colors.onSurfaceMuted }]}>
+                  Send the annotated photo via WhatsApp, Mail, Files…
+                </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceMuted} />
             </Pressable>

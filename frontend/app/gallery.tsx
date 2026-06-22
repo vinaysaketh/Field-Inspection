@@ -5,19 +5,15 @@ import { FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from "r
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
-import { useToast } from "@/src/components/Toast";
 import { loadObservations } from "@/src/store/observations";
 import { Observation } from "@/src/store/types";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { radius, spacing, typography } from "@/src/theme/tokens";
-import { exportObservationsPdf } from "@/src/utils/pdf";
 
 export default function Gallery() {
   const { colors, scheme } = useTheme();
-  const toast = useToast();
   const [items, setItems] = useState<Observation[]>([]);
   const [query, setQuery] = useState("");
-  const [exporting, setExporting] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -37,22 +33,6 @@ export default function Gallery() {
     );
   }, [items, query]);
 
-  const onExport = async () => {
-    if (filtered.length === 0) {
-      toast.show("No observations to export", { kind: "error" });
-      return;
-    }
-    setExporting(true);
-    try {
-      await exportObservationsPdf(filtered);
-      toast.show("PDF generated", { kind: "success" });
-    } catch (e: any) {
-      toast.show("Export failed: " + (e?.message ?? "unknown"), { kind: "error" });
-    } finally {
-      setExporting(false);
-    }
-  };
-
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.background }]} edges={["top", "left", "right"]}>
       <StatusBar style={scheme === "dark" ? "light" : "dark"} />
@@ -61,14 +41,7 @@ export default function Gallery() {
           <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
         </Pressable>
         <Text style={[styles.title, { color: colors.onSurface }]}>Gallery</Text>
-        <Pressable
-          testID="export-pdf-button"
-          onPress={onExport}
-          disabled={exporting}
-          style={[styles.iconBtn, { backgroundColor: colors.primary, borderColor: colors.primary, opacity: exporting ? 0.6 : 1 }]}
-        >
-          <Ionicons name="document-text-outline" size={20} color={colors.onPrimary} />
-        </Pressable>
+        <View style={{ width: 44 }} />
       </View>
 
       <View style={[styles.searchWrap, { backgroundColor: colors.surface, borderColor: colors.outline }]}>

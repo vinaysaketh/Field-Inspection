@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as Sharing from "expo-sharing";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
 import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
@@ -6,7 +7,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
 import { useToast } from "@/src/components/Toast";
-import { deleteObservation, getObservation, updateObservation } from "@/src/store/observations";
+import {
+  deleteObservation,
+  getObservation,
+  markSharePrompted,
+  shouldShowSharePrompt,
+  updateObservation,
+} from "@/src/store/observations";
 import { Observation } from "@/src/store/types";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { radius, spacing, typography } from "@/src/theme/tokens";
@@ -21,20 +28,53 @@ export default function ObservationDetail() {
   const [exporting, setExporting] = useState(false);
   const [renameModal, setRenameModal] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
+  const [shareSheet, setShareSheet] = useState<"hidden" | "normal" | "like">("hidden");
 
   useFocusEffect(
     useCallback(() => {
-      if (id) getObservation(id).then(setObs);
+      if (id) {
+        getObservation(id).then(setObs);
+      }
+      // Auto-open the celebratory "Like & Share" sheet when crossing 5 annotations
+      shouldShowSharePrompt().then((show) => {
+        if (show) {
+          setShareSheet("like");
+          markSharePrompted();
+        }
+      });
     }, [id]),
   );
 
   const stamp = obs ? formatLocationStamp(obs.location, obs.template, "", new Date(obs.timestamp)) : "";
 
   const onExport = async () => {
+    setShareSheet("normal");
+  };
+
+  const shareAsImage = async () => {
     if (!obs) return;
+    setShareSheet("hidden");
+    try {
+      const available = await Sharing.isAvailableAsync();
+      if (!available) {
+        toast.show("Sharing not available", { kind: "error" });
+        return;
+      }
+      await Sharing.shareAsync(obs.imageUri, {
+        mimeType: "image/jpeg",
+        dialogTitle: obs.title || obs.number,
+      });
+    } catch (e: any) {
+      toast.show("Share failed: " + (e?.message ?? "unknown"), { kind: "error" });
+    }
+  };
+
+  const shareAsPdf = async () => {
+    if (!obs) return;
+    setShareSheet("hidden");
     setExporting(true);
     try {
-      await exportObservationsPdf([obs], obs.number);
+      await exportObservationsPdf([obs], obs.title || obs.number);
       toast.show("PDF generated", { kind: "success" });
     } catch (e: any) {
       toast.show("Export failed: " + (e?.message ?? "unknown"), { kind: "error" });
@@ -167,6 +207,77 @@ export default function ObservationDetail() {
           </View>
         </View>
       </Modal>
+
+      <Modal
+        visible={shareSheet !== "hidden"}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShareSheet("hidden")}
+      >
+        <Pressable style={styles.sheetBackdrop} onPress={() => setShareSheet("hidden")}>
+          <Pressable
+            style={[styles.sheet, { backgroundColor: colors.surface }]}
+            onPress={(e) => e.stopPropagation()}
+            testID="share-sheet"
+          >
+            <View style={styles.sheetHandle} />
+            {shareSheet === "like" ? (
+              <View style={{ alignItems: "center", gap: 6, paddingHorizontal: spacing.lg, paddingBottom: spacing.md }}>
+                <Ionicons name="heart" size={36} color={colors.primary} />
+                <Text style={[styles.sheetTitle, { color: colors.onSurface }]}>You{`'`}re on a roll!</Text>
+                <Text style={{ color: colors.onSurfaceMuted, textAlign: "center", fontSize: 13 }}>
+                  You{`'`}ve annotated 5 photos. If FieldSnap Pro is helping your work, please share it with a teammate.
+                </Text>
+              </View>
+            ) : (
+              <Text style={[styles.sheetTitle, { color: colors.onSurface, marginBottom: spacing.sm }]}>
+                Share this observation
+              </Text>
+            )}
+
+            <Pressable
+              testID="share-image-button"
+              onPress={shareAsImage}
+              style={[styles.sheetRow, { borderColor: colors.outline }]}
+            >
+              <View style={[styles.sheetIcon, { backgroundColor: colors.primaryContainer }]}>
+                <Ionicons name="image" size={22} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.sheetLabel, { color: colors.onSurface }]}>Share as Image</Text>
+                <Text style={[styles.sheetSub, { color: colors.onSurfaceMuted }]}>Send the annotated JPG</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceMuted} />
+            </Pressable>
+
+            <Pressable
+              testID="share-pdf-button"
+              onPress={shareAsPdf}
+              disabled={exporting}
+              style={[styles.sheetRow, { borderColor: colors.outline, opacity: exporting ? 0.6 : 1 }]}
+            >
+              <View style={[styles.sheetIcon, { backgroundColor: colors.primaryContainer }]}>
+                <Ionicons name="document-text" size={22} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.sheetLabel, { color: colors.onSurface }]}>Share as PDF Report</Text>
+                <Text style={[styles.sheetSub, { color: colors.onSurfaceMuted }]}>Includes notes & GPS stamp</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceMuted} />
+            </Pressable>
+
+            <Pressable
+              testID="share-dismiss-button"
+              onPress={() => setShareSheet("hidden")}
+              style={{ paddingVertical: spacing.md, alignItems: "center" }}
+            >
+              <Text style={{ color: colors.onSurfaceMuted, fontWeight: "600" }}>
+                {shareSheet === "like" ? "Maybe later" : "Cancel"}
+              </Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -248,4 +359,44 @@ const styles = StyleSheet.create({
   },
   modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: spacing.sm },
   modalBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
+  sheetBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xl,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    gap: spacing.sm,
+  },
+  sheetHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(120,120,120,0.4)",
+    alignSelf: "center",
+    marginBottom: spacing.md,
+  },
+  sheetTitle: { fontSize: 18, fontWeight: "700" },
+  sheetRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  sheetIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sheetLabel: { fontSize: 15, fontWeight: "600" },
+  sheetSub: { fontSize: 12, marginTop: 2 },
 });

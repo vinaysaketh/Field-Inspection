@@ -34,7 +34,7 @@ import Svg, {
 import { captureRef } from "react-native-view-shot";
 
 import { useToast } from "@/src/components/Toast";
-import { addObservation, nextObservationNumber } from "@/src/store/observations";
+import { addObservation, incrementAnnotationCount, nextObservationNumber } from "@/src/store/observations";
 import { loadSettings } from "@/src/store/settings";
 import { AppSettings, LocationData, Observation } from "@/src/store/types";
 import { useTheme } from "@/src/theme/ThemeProvider";
@@ -483,6 +483,7 @@ export default function Editor() {
       if (loc && !loc.resolved) {
         await queueForGeocoding(obs.id);
       }
+      await incrementAnnotationCount();
       // Best-effort: also save annotated image to the device Photos library.
       try {
         const perm = await MediaLibrary.requestPermissionsAsync();

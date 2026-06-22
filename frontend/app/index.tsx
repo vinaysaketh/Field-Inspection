@@ -50,8 +50,7 @@ export default function Home() {
 
   const pickFromGallery = async () => {
     try {
-      // Lazy require so a missing native module surfaces a clear error
-      // instead of crashing during module evaluation.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy require so the screen still works if module evaluation fails
       const ImagePicker = require("expo-image-picker");
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!perm.granted) {
@@ -102,45 +101,34 @@ export default function Home() {
 
       <View style={styles.actionRow}>
         <Pressable
-          testID="capture-photo-button"
-          onPress={() => router.push("/camera")}
+          testID="pick-photo-button"
+          onPress={pickFromGallery}
           style={({ pressed }) => [
             styles.primaryCard,
             { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
           ]}
         >
-          <Ionicons name="camera" size={36} color={colors.onPrimary} />
-          <Text style={[styles.primaryLabel, { color: colors.onPrimary }]}>Capture Photo</Text>
-          <Text style={[styles.primarySub, { color: colors.onPrimary }]}>Tap to start</Text>
+          <Ionicons name="image" size={40} color={colors.onPrimary} />
+          <Text style={[styles.primaryLabel, { color: colors.onPrimary }]}>Pick Photo</Text>
+          <Text style={[styles.primarySub, { color: colors.onPrimary }]}>
+            Choose any photo to annotate
+          </Text>
         </Pressable>
 
-        <View style={{ flex: 1, gap: spacing.md }}>
-          <Pressable
-            testID="pick-photo-button"
-            onPress={pickFromGallery}
-            style={({ pressed }) => [
-              styles.smallCard,
-              { backgroundColor: colors.surface, borderColor: colors.outline, opacity: pressed ? 0.85 : 1 },
-            ]}
-          >
-            <Ionicons name="image-outline" size={22} color={colors.primary} />
-            <Text style={[styles.smallLabel, { color: colors.onSurface }]}>Pick Photo</Text>
-            <Text style={[styles.smallSub, { color: colors.onSurfaceMuted }]}>Annotate existing</Text>
-          </Pressable>
-
-          <Pressable
-            testID="open-gallery-button"
-            onPress={() => router.push("/gallery")}
-            style={({ pressed }) => [
-              styles.smallCard,
-              { backgroundColor: colors.surface, borderColor: colors.outline, opacity: pressed ? 0.85 : 1 },
-            ]}
-          >
-            <Ionicons name="images-outline" size={22} color={colors.primary} />
-            <Text style={[styles.smallLabel, { color: colors.onSurface }]}>Gallery</Text>
-            <Text style={[styles.smallSub, { color: colors.onSurfaceMuted }]}>{recent.length === 0 ? "Empty" : "View all"}</Text>
-          </Pressable>
-        </View>
+        <Pressable
+          testID="open-gallery-button"
+          onPress={() => router.push("/gallery")}
+          style={({ pressed }) => [
+            styles.secondaryCard,
+            { backgroundColor: colors.surface, borderColor: colors.outline, opacity: pressed ? 0.85 : 1 },
+          ]}
+        >
+          <Ionicons name="images-outline" size={28} color={colors.primary} />
+          <Text style={[styles.secondaryLabel, { color: colors.onSurface }]}>My Gallery</Text>
+          <Text style={[styles.secondarySub, { color: colors.onSurfaceMuted }]}>
+            {recent.length === 0 ? "Empty" : `${recent.length} recent`}
+          </Text>
+        </Pressable>
       </View>
 
       <View style={styles.sectionHeader}>
@@ -157,7 +145,7 @@ export default function Home() {
           <View style={[styles.empty, { borderColor: colors.outline }]}>
             <Ionicons name="document-outline" size={32} color={colors.onSurfaceMuted} />
             <Text style={[styles.emptyText, { color: colors.onSurfaceMuted }]}>
-              No observations yet. Tap Capture Photo to start.
+              No observations yet. Tap Pick Photo to start.
             </Text>
           </View>
         }
@@ -209,19 +197,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   actionRow: {
-    flexDirection: "row",
     paddingHorizontal: spacing.lg,
     gap: spacing.md,
   },
   primaryCard: {
-    flex: 1.4,
     borderRadius: radius.md,
-    padding: spacing.lg,
-    minHeight: 140,
+    padding: spacing.xl,
+    minHeight: 200,
     justifyContent: "space-between",
+    gap: spacing.sm,
   },
-  primaryLabel: { ...typography.h3, marginTop: spacing.sm },
-  primarySub: { fontSize: 13, opacity: 0.85 },
+  primaryLabel: { ...typography.h1, marginTop: spacing.md },
+  primarySub: { fontSize: 14, opacity: 0.9 },
   smallCard: {
     flex: 1,
     borderRadius: radius.md,
@@ -235,15 +222,16 @@ const styles = StyleSheet.create({
   smallLabel: { fontSize: 15, fontWeight: "600" },
   smallSub: { fontSize: 11 },
   secondaryCard: {
-    flex: 1,
     borderRadius: radius.md,
     padding: spacing.lg,
     borderWidth: 1,
-    justifyContent: "space-between",
-    minHeight: 140,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    minHeight: 72,
   },
-  secondaryLabel: { ...typography.h3, marginTop: spacing.sm },
-  secondarySub: { fontSize: 13 },
+  secondaryLabel: { ...typography.h3 },
+  secondarySub: { fontSize: 13, marginLeft: "auto" },
   sectionHeader: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.xl,

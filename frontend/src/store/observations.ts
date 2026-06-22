@@ -54,3 +54,27 @@ export async function getObservation(id: string): Promise<Observation | null> {
   const list = await loadObservations();
   return list.find((o) => o.id === id) ?? null;
 }
+
+const ANNOTATION_COUNTER_KEY = "fsp.annotationCount";
+const SHARE_PROMPTED_KEY = "fsp.sharePrompted";
+
+export async function incrementAnnotationCount(): Promise<number> {
+  const current = (await storage.getItem<number>(ANNOTATION_COUNTER_KEY, 0)) ?? 0;
+  const next = (current as number) + 1;
+  await storage.setItem(ANNOTATION_COUNTER_KEY, next);
+  return next;
+}
+
+export async function getAnnotationCount(): Promise<number> {
+  return ((await storage.getItem<number>(ANNOTATION_COUNTER_KEY, 0)) ?? 0) as number;
+}
+
+export async function shouldShowSharePrompt(): Promise<boolean> {
+  const count = await getAnnotationCount();
+  const prompted = (await storage.getItem<boolean>(SHARE_PROMPTED_KEY, false)) ?? false;
+  return count >= 5 && !prompted;
+}
+
+export async function markSharePrompted(): Promise<void> {
+  await storage.setItem(SHARE_PROMPTED_KEY, true);
+}

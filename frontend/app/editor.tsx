@@ -156,6 +156,8 @@ export default function Editor() {
   // Location & save
   const [loc, setLoc] = useState<LocationData | null>(null);
   const [obsNumber, setObsNumber] = useState<string>("");
+  const [title, setTitle] = useState<string>("");
+  const [showTitleModal, setShowTitleModal] = useState(false);
   const [notes, setNotes] = useState<string>("");
   const [showNotes, setShowNotes] = useState(false);
   const [saving, setSaving] = useState(false);

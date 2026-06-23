@@ -5,7 +5,9 @@ import * as MediaLibrary from "expo-media-library";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Image as RNImage,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -165,6 +167,7 @@ export default function Editor() {
 
   // Container sizing → letterboxed image rect
   const [containerSize, setContainerSize] = useState<{ w: number; h: number }>({ w: 1, h: 1 });
+  const [imageLoaded, setImageLoaded] = useState(false);
   const displayed = useMemo(() => {
     const cw = containerSize.w, ch = containerSize.h;
     const iw = imageDims.w || 1, ih = imageDims.h || 1;
@@ -443,6 +446,10 @@ export default function Editor() {
 
   const save = async () => {
     if (!imageUri || saving) return;
+    if (!imageLoaded) {
+      toast.show("Image still loading…", { kind: "info" });
+      return;
+    }
     setSaving(true);
     // Reset zoom & clear selection BEFORE capture; iOS refuses to snapshot a
     // view with an active transform (`drawViewHierarchyInRect` fails). Give
@@ -454,7 +461,9 @@ export default function Editor() {
     savedTx.value = 0;
     savedTy.value = 0;
     setSelectedId(null);
-    await new Promise((r) => setTimeout(r, 80));
+    // Wait for layout to commit AND give Android one extra frame for the image
+    // bitmap to be re-rasterised at the unscaled view size before capture.
+    await new Promise((r) => setTimeout(r, Platform.OS === "android" ? 200 : 80));
     try {
       const captured = await captureRef(shotRef as any, {
         format: "jpg",
@@ -588,18 +597,39 @@ export default function Editor() {
                 style={[styles.shotArea, { width: displayed.w, height: displayed.h }]}
                 collapsable={false}
               >
-                <ExpoImage
-                  source={{ uri: imageUri }}
-                  style={styles.image}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
-                  onLoad={(e) => {
-                    const src = e?.source;
-                    if (src?.width && src?.height && (imageDims.w === 1080 || imageDims.h === 1440)) {
-                      setImageDims({ w: src.width, h: src.height });
-                    }
-                  }}
-                />
+                {Platform.OS === "android" ? (
+                  // RN <Image resizeMethod="scale"> avoids Fresco/Glide downsampling
+                  // so the bitmap stays at full resolution → no blur on captureRef.
+                  <RNImage
+                    source={{ uri: imageUri }}
+                    style={styles.image}
+                    resizeMode="cover"
+                    resizeMethod="scale"
+                    fadeDuration={0}
+                    onLoad={(e) => {
+                      const src = e.nativeEvent.source;
+                      if (src?.width && src?.height && (imageDims.w === 1080 || imageDims.h === 1440)) {
+                        setImageDims({ w: src.width, h: src.height });
+                      }
+                      setImageLoaded(true);
+                    }}
+                  />
+                ) : (
+                  <ExpoImage
+                    source={{ uri: imageUri }}
+                    style={styles.image}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    priority="high"
+                    onLoad={(e) => {
+                      const src = e?.source;
+                      if (src?.width && src?.height && (imageDims.w === 1080 || imageDims.h === 1440)) {
+                        setImageDims({ w: src.width, h: src.height });
+                      }
+                      setImageLoaded(true);
+                    }}
+                  />
+                )}
                 <Svg
                   width={displayed.w}
                   height={displayed.h}

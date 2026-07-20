@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { FlatList, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
@@ -11,7 +11,6 @@ import { Observation, AppSettings } from "@/src/store/types";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { spacing, radius, typography } from "@/src/theme/tokens";
 import { processGeocodeQueue } from "@/src/utils/location";
-import { hasPin } from "@/src/utils/auth";
 import { useToast } from "@/src/components/Toast";
 
 export default function Home() {
@@ -19,20 +18,6 @@ export default function Home() {
   const toast = useToast();
   const [recent, setRecent] = useState<Observation[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [unlocked, setUnlocked] = useState(false);
-
-  // Gate: route to lock screen if app lock enabled & no session unlock yet.
-  useEffect(() => {
-    (async () => {
-      const s = await loadSettings();
-      const pin = await hasPin();
-      if (s.appLockEnabled && pin) {
-        router.replace("/lock");
-      } else {
-        setUnlocked(true);
-      }
-    })();
-  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -45,8 +30,6 @@ export default function Home() {
       })();
     }, []),
   );
-
-  if (!unlocked) return <View style={{ flex: 1, backgroundColor: colors.background }} />;
 
   const pickFromGallery = async () => {
     try {

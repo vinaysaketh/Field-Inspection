@@ -6,6 +6,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
 import { useToast } from "@/src/components/Toast";
+import { useLockGate } from "@/src/security/LockGate";
 import { loadSettings } from "@/src/store/settings";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { radius, spacing, typography } from "@/src/theme/tokens";
@@ -14,6 +15,7 @@ import { authenticateBiometric, canUseBiometric, verifyPin } from "@/src/utils/a
 export default function Lock() {
   const { colors, scheme } = useTheme();
   const toast = useToast();
+  const { markUnlocked } = useLockGate();
   const [pin, setPin] = useState("");
   const [biometricEnabled, setBiometricEnabled] = useState(false);
 
@@ -24,14 +26,19 @@ export default function Lock() {
       setBiometricEnabled(s.biometricEnabled && can);
       if (s.biometricEnabled && can) {
         const ok = await authenticateBiometric();
-        if (ok) router.replace("/");
+        if (ok) {
+          markUnlocked();
+          router.replace("/");
+        }
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const submit = async () => {
     const ok = await verifyPin(pin);
     if (ok) {
+      markUnlocked();
       router.replace("/");
     } else {
       toast.show("Incorrect PIN", { kind: "error" });
@@ -71,7 +78,10 @@ export default function Lock() {
             testID="lock-biometric-button"
             onPress={async () => {
               const ok = await authenticateBiometric();
-              if (ok) router.replace("/");
+              if (ok) {
+                markUnlocked();
+                router.replace("/");
+              }
             }}
             style={[styles.bioBtn, { borderColor: colors.outline }]}
           >

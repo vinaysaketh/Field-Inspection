@@ -8,6 +8,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { ThemeProvider } from "@/src/theme/ThemeProvider";
 import { ToastProvider } from "@/src/components/Toast";
+import { LockGate } from "@/src/security/LockGate";
 
 
 LogBox.ignoreAllLogs(true);
@@ -29,7 +30,9 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <ThemeProvider>
           <ToastProvider>
-            <Stack screenOptions={{ headerShown: false, animation: "fade" }} />
+            <LockGate>
+              <Stack screenOptions={{ headerShown: false, animation: "fade" }} />
+            </LockGate>
           </ToastProvider>
         </ThemeProvider>
       </SafeAreaProvider>

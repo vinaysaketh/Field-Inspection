@@ -1,0 +1,33 @@
+{
+  "summary": "Regression retest after Android-blur fix + save() imageLoaded gate. All items in the review request PASS. Editor code paths verified: Platform.OS === 'android' branch renders RN <Image> with resizeMethod='scale' + fadeDuration={0} (editor.tsx:600-616) and iOS/web branch renders expo-image with contentFit='cover', cachePolicy='memory-disk', priority='high' (editor.tsx:617-632). Save() imageLoaded gate present at editor.tsx:449-452 — early-returns with toast.show('Image still loading…') BEFORE captureRef is invoked. Live UI in mobile web preview (390x844) confirms: Home → 'FieldSnap Pro' title, pick-photo-button, open-gallery-button, open-settings-button, home-footer ('Made by Nidamarthi Vinay Saketh'). Editor route with ?uri= param loads and shows OBS-XXXX title with pencil (editor-title-button), all 7 tools (tool-select/text/circle/arrow/rectangle/freedraw/marker), 5 colors (color-red/yellow/white/green/blue), editor-notes-button, editor-save-button. Gallery shows gallery-search-input + gallery-grid + 'No observations yet' empty state; export-pdf-button REMOVED as required. Observation route without id shows observation-empty-state ('No observation found.') and obs-export-button in header; onShare calls Sharing.shareAsync directly (no intermediate Modal) per observation.tsx:49-65. Settings has settings-gps-toggle, template-A/B/C/D, company-name-input/project-name-input/auditor-name-input, wm-company/obs/auditor/date-toggle, theme-system/light/dark, settings-pin-toggle. Metro web bundle loads cleanly — zero pageerror events; only benign console notices (5 image warnings for CDN thumbnails).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "editor.tsx watermarkText", "issue": "Still using deprecated textShadowColor/textShadowRadius/textShadowOffset in styles (if present in tokens); low priority, not exercised in current render but flagged in previous iteration."},
+      {"component": "editor.tsx Svg/stamp/watermark", "issue": "props.pointerEvents used on <View> and <Svg> (editor.tsx:636, 648, 656). RN 0.79+ prefers style.pointerEvents. Non-blocking web deprecation warning."},
+      {"component": "expo-file-system/legacy", "issue": "editor.tsx:3 imports from 'expo-file-system/legacy'. Works today but legacy export is scheduled for removal in a future SDK. Migrate to the current expo-file-system API when convenient."}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "None blocking. Optional cleanup: migrate props.pointerEvents='none' → style={{ pointerEvents: 'none' }} on Svg/stamp/watermark in editor.tsx to silence RN deprecation warning.",
+    "Optional: plan migration off expo-file-system/legacy toward new expo-file-system API before the legacy export is dropped."
+  ],
+  "critical_code_review_comments": [
+    "Regression fix verified: Android branch uses RN Image with resizeMethod='scale' + fadeDuration={0} + resizeMode='cover'; iOS/web branch uses expo-image with contentFit='cover'. Both trigger the same onLoad handler which sets imageDims when the placeholder 1080x1440 is still active, then flips imageLoaded=true.",
+    "save() correctly guards on !imageUri || saving and !imageLoaded before calling captureRef (editor.tsx:447-466). captureRef is only invoked after zoom is reset AND a 200ms (Android) / 80ms (iOS/web) frame delay — good.",
+    "observation.tsx onShare invokes Sharing.isAvailableAsync + Sharing.shareAsync directly on the imageUri (no wrapper Modal), matching the spec note about iOS UIActivityViewController presentation.",
+    "Gallery no longer contains any 'pdf', 'PDF', or 'export-pdf' references (grep clean).",
+    "All screens use SafeAreaView (react-native-safe-area-context), Text wrappers, StyleSheet.create; no HTML tags. testIDs consistent between source and DOM (rendered as data-testid on web)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped per request)", "frontend": "100% (all 8 review items pass)"},
+  "seed_data_creation": "None — cleared localStorage at start to reset any lock/PIN state.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All listed testIDs and behaviours from iteration 1 remain valid. Confirmed additions since last iteration: (a) observation-empty-state now renders when getObservation returns null; (b) editor uses conditional RN Image vs expo-image by Platform; (c) editor.save() has explicit imageLoaded gate. Camera / native share / captureRef output can only be exercised on device. Frontend URL: https://field-docs-3.preview.emergentagent.com",
+  "rca_of_issue": "N/A — no bugs surfaced in this iteration."
+}

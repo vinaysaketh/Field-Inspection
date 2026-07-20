@@ -16,7 +16,8 @@
         "NSPhotoLibraryAddUsageDescription": "Save annotated observation images",
         "NSLocationWhenInUseUsageDescription": "Stamp GPS location on captured images",
         "NSFaceIDUsageDescription": "Unlock the app using Face ID"
-      }
+      },
+      "bundleIdentifier": "com.emergent.fielddocs.mztrm0"
     },
     "android": {
       "adaptiveIcon": {
@@ -33,7 +34,8 @@
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.READ_MEDIA_IMAGES"
-      ]
+      ],
+      "package": "com.emergent.fielddocs.mztrm0"
     },
     "web": {
       "bundler": "metro",

@@ -671,8 +671,7 @@ export default function Editor() {
 
                 {stampText ? (
                   <View
-                    style={[styles.stamp, { left: 8, bottom: 8 }]}
-                    pointerEvents="none"
+                    style={[styles.stamp, { left: 8, bottom: 8, pointerEvents: "none" }]}
                     testID="gps-stamp-overlay"
                   >
                     <Text style={styles.stampText}>{stampText}</Text>
@@ -680,7 +679,7 @@ export default function Editor() {
                 ) : null}
 
                 {watermarkLines.length > 0 ? (
-                  <View style={styles.watermark} pointerEvents="none" testID="watermark-overlay">
+                  <View style={[styles.watermark, { pointerEvents: "none" }]} testID="watermark-overlay">
                     {watermarkLines.map((line, i) => (
                       <Text key={i} style={styles.watermarkText}>{line}</Text>
                     ))}

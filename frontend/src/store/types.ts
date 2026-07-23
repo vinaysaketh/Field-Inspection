@@ -14,7 +14,13 @@ export interface Observation {
   id: string;
   number: string; // e.g. OBS-0001
   title?: string; // user-editable display name (defaults to number)
-  imageUri: string; // local file uri
+  imageUri: string; // local file uri (documentDirectory)
+  /**
+   * MediaLibrary asset id if the image was successfully saved to the device
+   * Photos/Gallery. If the user later deletes that asset from their Gallery
+   * app, we detect it and prune this observation (see pruneOrphanedObservations).
+   */
+  mediaAssetId?: string;
   thumbnailUri?: string;
   location: LocationData | null;
   timestamp: number; // ms since epoch

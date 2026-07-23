@@ -5,7 +5,7 @@ import { FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from "r
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
-import { loadObservations } from "@/src/store/observations";
+import { loadObservations, pruneOrphanedObservations } from "@/src/store/observations";
 import { Observation } from "@/src/store/types";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { radius, spacing, typography } from "@/src/theme/tokens";
@@ -17,7 +17,11 @@ export default function Gallery() {
 
   useFocusEffect(
     useCallback(() => {
-      loadObservations().then(setItems);
+      (async () => {
+        await pruneOrphanedObservations().catch(() => 0);
+        const items = await loadObservations();
+        setItems(items);
+      })();
     }, []),
   );
 

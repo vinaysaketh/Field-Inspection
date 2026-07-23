@@ -5,7 +5,7 @@ import { FlatList, Image, Pressable, StyleSheet, Text, View } from "react-native
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
-import { loadObservations } from "@/src/store/observations";
+import { loadObservations, pruneOrphanedObservations } from "@/src/store/observations";
 import { loadSettings } from "@/src/store/settings";
 import { Observation, AppSettings } from "@/src/store/types";
 import { useTheme } from "@/src/theme/ThemeProvider";
@@ -22,10 +22,11 @@ export default function Home() {
   useFocusEffect(
     useCallback(() => {
       (async () => {
+        // Prune observations whose local file or Gallery asset has been deleted.
+        await pruneOrphanedObservations().catch(() => 0);
         const [obs, s] = await Promise.all([loadObservations(), loadSettings()]);
         setRecent(obs.slice(0, 5));
         setSettings(s);
-        // Best effort: attempt to resolve pending addresses in background.
         processGeocodeQueue().catch(() => {});
       })();
     }, []),

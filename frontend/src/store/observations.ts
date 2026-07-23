@@ -1,3 +1,5 @@
+import * as FileSystem from "expo-file-system/legacy";
+
 import { storage } from "@/src/utils/storage";
 import { Observation } from "./types";
 
@@ -36,7 +38,63 @@ export async function updateObservation(id: string, patch: Partial<Observation>)
 
 export async function deleteObservation(id: string): Promise<void> {
   const list = await loadObservations();
+  const target = list.find((o) => o.id === id);
   await saveObservations(list.filter((o) => o.id !== id));
+  // Best-effort cleanup of the on-disk annotated file so we don't leak storage.
+  if (target?.imageUri && target.imageUri.startsWith("file://")) {
+    try {
+      await FileSystem.deleteAsync(target.imageUri, { idempotent: true });
+    } catch {
+      // ignore — file may already be gone
+    }
+  }
+}
+
+/**
+ * Gallery-sync guard: on every list load we verify each observation still
+ * references a real image. We check TWO signals:
+ *   • the local annotated JPG we wrote to documentDirectory
+ *   • the corresponding MediaLibrary asset (if we captured its id at save time)
+ * Missing either → the observation is pruned so the UI never renders a
+ * broken/orphaned card. Older observations without a mediaAssetId are only
+ * checked against the local file (backwards-compatible).
+ */
+export async function pruneOrphanedObservations(): Promise<number> {
+  const list = await loadObservations();
+  if (list.length === 0) return 0;
+  const keep: Observation[] = [];
+  let MediaLibrary: any = null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    MediaLibrary = require("expo-media-library");
+  } catch {
+    /* ok */
+  }
+  for (const o of list) {
+    let localOk = true;
+    if (o.imageUri?.startsWith("file://")) {
+      try {
+        const info = await FileSystem.getInfoAsync(o.imageUri);
+        localOk = !!info?.exists;
+      } catch {
+        localOk = false;
+      }
+    }
+    let galleryOk = true;
+    if (o.mediaAssetId && MediaLibrary?.getAssetInfoAsync) {
+      try {
+        const info = await MediaLibrary.getAssetInfoAsync(o.mediaAssetId);
+        galleryOk = !!info && !!info.id;
+      } catch {
+        galleryOk = false;
+      }
+    }
+    if (localOk && galleryOk) keep.push(o);
+  }
+  if (keep.length !== list.length) {
+    await saveObservations(keep);
+  }
+  return list.length - keep.length;
 }
 
 export async function nextObservationNumber(): Promise<string> {

@@ -73,6 +73,9 @@ const TOOL_LIST: { tool: Tool; icon: keyof typeof Ionicons.glyphMap; label: stri
   { tool: "select", icon: "hand-left-outline", label: "Move" },
   { tool: "marker", icon: "location", label: "Marker" },
   { tool: "text", icon: "text", label: "Text" },
+  // NOTE: `notes` isn't a real annotation tool; it opens the notes modal.
+  //       We render it in the same row so users see it beside Text with matching UI.
+  { tool: "notes" as Tool, icon: "document-text-outline", label: "Notes" },
   { tool: "circle", icon: "ellipse-outline", label: "Circle" },
   { tool: "arrow", icon: "arrow-forward", label: "Arrow" },
   { tool: "rectangle", icon: "square-outline", label: "Rect" },
@@ -493,11 +496,25 @@ export default function Editor() {
       const dest = `${dir}${obsNumber}_${Date.now()}.jpg`;
       await FileSystem.copyAsync({ from: captured, to: dest });
 
+      // Best-effort: also save annotated image to the device Photos library
+      // and capture the asset id so we can detect a later Gallery deletion.
+      let mediaAssetId: string | undefined;
+      try {
+        const perm = await MediaLibrary.requestPermissionsAsync();
+        if (perm.granted) {
+          const asset = await MediaLibrary.createAssetAsync(dest);
+          if (asset?.id) mediaAssetId = asset.id;
+        }
+      } catch (e) {
+        console.warn("MediaLibrary save failed", e);
+      }
+
       const obs: Observation = {
         id: genId(),
         number: obsNumber,
         title: title.trim() || obsNumber,
         imageUri: dest,
+        mediaAssetId,
         location: loc,
         timestamp: Date.now(),
         project: settings?.project ?? "",
@@ -511,15 +528,6 @@ export default function Editor() {
         await queueForGeocoding(obs.id);
       }
       await incrementAnnotationCount();
-      // Best-effort: also save annotated image to the device Photos library.
-      try {
-        const perm = await MediaLibrary.requestPermissionsAsync();
-        if (perm.granted) {
-          await MediaLibrary.saveToLibraryAsync(dest);
-        }
-      } catch (e) {
-        console.warn("MediaLibrary save failed", e);
-      }
       toast.show(`${obs.title} saved`, { kind: "success" });
       router.replace({ pathname: "/observation", params: { id: obs.id } });
     } catch (e: any) {
@@ -723,19 +731,32 @@ export default function Editor() {
                 key={t.tool}
                 testID={`tool-${t.tool}`}
                 onPress={() => {
+                  if ((t.tool as string) === "notes") {
+                    setShowNotes(true);
+                    return;
+                  }
                   setTool(t.tool);
                   if (t.tool !== "select") setSelectedId(null);
                 }}
                 style={[
                   styles.toolBtn,
                   {
-                    borderColor: tool === t.tool ? annotationPalette[color] : "rgba(255,255,255,0.15)",
-                    backgroundColor: tool === t.tool ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.35)",
+                    borderColor:
+                      tool === t.tool && (t.tool as string) !== "notes"
+                        ? annotationPalette[color]
+                        : "rgba(255,255,255,0.15)",
+                    backgroundColor:
+                      tool === t.tool && (t.tool as string) !== "notes"
+                        ? "rgba(255,255,255,0.12)"
+                        : "rgba(0,0,0,0.35)",
                   },
                 ]}
               >
                 <Ionicons name={t.icon} size={20} color="#fff" />
-                <Text style={styles.toolLabel}>{t.label}</Text>
+                <Text style={styles.toolLabel}>
+                  {t.label}
+                  {(t.tool as string) === "notes" && notes ? " •" : ""}
+                </Text>
               </Pressable>
             ))}
           </ScrollView>
@@ -819,26 +840,6 @@ export default function Editor() {
                 ? "Tap to add • Tap existing text to edit"
                 : "Pinch with 2 fingers to zoom"}
             </Text>
-          </View>
-
-          <View style={styles.actionsRow}>
-            <Pressable
-              testID="editor-notes-button"
-              onPress={() => setShowNotes(true)}
-              style={[styles.actionBtn, { backgroundColor: "rgba(255,255,255,0.12)" }]}
-            >
-              <Ionicons name="document-text-outline" size={18} color="#fff" />
-              <Text style={styles.actionText}>Notes{notes ? " •" : ""}</Text>
-            </Pressable>
-            <Pressable
-              testID="editor-save-button"
-              onPress={save}
-              disabled={saving}
-              style={[styles.actionBtn, styles.actionPrimary, saving && { opacity: 0.6 }]}
-            >
-              <Ionicons name="checkmark" size={18} color="#fff" />
-              <Text style={styles.actionText}>{saving ? "Saving..." : "Save"}</Text>
-            </Pressable>
           </View>
         </View>
       </SafeAreaView>

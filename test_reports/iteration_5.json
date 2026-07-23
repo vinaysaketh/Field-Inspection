@@ -1,0 +1,28 @@
+{
+  "summary": "FieldSnap Pro editor v1.3 revision — frontend-only review. All spec items verified via code inspection + Playwright automation on web preview (390x844). Old bottom action row (editor-save-button, editor-notes-button) is fully removed; the header editor-header-save-button renders and reuses the same save() handler. Toolbar renders exactly in the expected order (select, marker, text, notes, circle, arrow, rectangle, freedraw) with tool-notes sharing identical computed style with tool-text (both use styles.toolBtn — height 44px, borderRadius 9999px, borderWidth 1px, same padding). Tapping tool-notes opens the observation-notes-input modal and does NOT switch the active drawing tool — verified by pre-selecting marker, tapping notes, and confirming marker's active background (rgba(255,255,255,0.12)) is unchanged. Save handler in editor.tsx calls MediaLibrary.createAssetAsync(dest) inside a permission-gated try/catch and stores the returned asset.id as observation.mediaAssetId (line 505-517). pruneOrphanedObservations() exists in /app/frontend/src/store/observations.ts and correctly (a) removes observations whose local file no longer exists (FileSystem.getInfoAsync), (b) removes observations whose MediaLibrary asset (mediaAssetId) is missing (getAssetInfoAsync), (c) is backwards-compatible for observations without mediaAssetId. Both index.tsx and gallery.tsx call pruneOrphanedObservations() inside useFocusEffect before loadObservations. deleteObservation() best-effort deletes the local file via FileSystem.deleteAsync({ idempotent: true }). All other editor testIDs (editor-close-button, editor-title-button, editor-zoom-reset, editor-undo-button, editor-redo-button, gps-stamp-overlay, watermark-overlay, tool-*, color-*, text-invert-*, text-size-*, stroke-*, title/text/notes modal fields) still render and behave. No runtime errors on Home, Gallery, or Editor routes. Native MediaLibrary.createAssetAsync and actual Gallery-deletion sync cannot be exercised on web preview — verified strictly at the code-path/DOM level as noted in the request.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "editor.tsx GPS stamp / watermark overlays", "issue": "Console warning on web: 'props.pointerEvents is deprecated. Use style.pointerEvents'. Both overlays currently pass `pointerEvents: 'none'` inside a style array which RN Web is flagging. Non-blocking, cosmetic warning only. Reference: /app/frontend/app/editor.tsx:682, 690"}
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_5.json"],
+  "action_items": [
+    "(Optional) Move `pointerEvents: 'none'` out of the style array into a top-level `pointerEvents=\"none\"` prop on the <View> OR add it via style prop only (already inside style, but RN Web still warns). Consider using pointerEvents=\"none\" prop directly to silence the deprecation warning in future RN releases."
+  ],
+  "critical_code_review_comments": [
+    "Editor v1.3 spec fully implemented — clean separation between drawing tools and the notes shortcut. The `(t.tool as string) === 'notes'` guard in the onPress handler and in the active-state styling (borderColor/backgroundColor) is correct and prevents tool-notes from ever appearing 'active' or clobbering the current tool.",
+    "pruneOrphanedObservations correctly handles the case where expo-media-library fails to require (wraps in try/catch) — good for web/Expo Go where the native module may be absent.",
+    "Save handler correctly gates MediaLibrary.createAssetAsync behind requestPermissionsAsync() and swallows failures without blocking the save flow — the observation is still persisted locally even if the Photos save fails."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "N/A (skipped)", "frontend": "100%" },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Editor v1.3 fully passes on web preview. Native-only flows to validate on-device: (1) MediaLibrary.createAssetAsync actually writes to Photos and returns an id stored as mediaAssetId; (2) Deleting the Gallery asset from Photos app, then reopening Home/Gallery, prunes the observation; (3) Deleting the underlying file from documentDirectory prunes on next focus. Web preview cannot exercise these — main agent should smoke-test on a physical device / Expo Go build.",
+  "rca_of_issue": "N/A — no bugs found."
+}

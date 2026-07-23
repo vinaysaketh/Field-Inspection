@@ -234,7 +234,7 @@ export default function Settings() {
         </Section>
 
         <Text style={{ color: colors.onSurfaceMuted, textAlign: "center", fontSize: 12, marginTop: spacing.md }}>
-          FieldSnap Pro • v1.0
+          FieldSnap Pro • v1.1
         </Text>
       </ScrollView>
     </SafeAreaView>

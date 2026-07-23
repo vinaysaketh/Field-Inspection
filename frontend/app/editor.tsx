@@ -22,7 +22,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import Svg, {
   Circle,
@@ -145,6 +145,7 @@ export default function Editor() {
   const { colors } = useTheme();
   const toast = useToast();
   const shotRef = useRef<View | null>(null);
+  const insets = useSafeAreaInsets();
 
   const [imageUri] = useState<string>(params.uri ?? "");
   const [imageDims, setImageDims] = useState<{ w: number; h: number }>({
@@ -568,7 +569,7 @@ export default function Editor() {
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
       <StatusBar style="light" />
-      <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right", "bottom"]}>
+      <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
         <View style={styles.topBar}>
           <Pressable testID="editor-close-button" onPress={() => router.back()} style={styles.iconBtn}>
             <Ionicons name="close" size={24} color="#fff" />
@@ -592,6 +593,15 @@ export default function Editor() {
             </Pressable>
             <Pressable testID="editor-redo-button" onPress={redo} disabled={!canRedo} style={[styles.iconBtn, !canRedo && { opacity: 0.35 }]}>
               <Ionicons name="arrow-redo" size={22} color="#fff" />
+            </Pressable>
+            <Pressable
+              testID="editor-header-save-button"
+              accessibilityLabel="Save"
+              onPress={save}
+              disabled={saving}
+              style={[styles.iconBtn, styles.headerSaveBtn, saving && { opacity: 0.5 }]}
+            >
+              <Ionicons name="save-outline" size={22} color="#fff" />
             </Pressable>
           </View>
         </View>
@@ -703,7 +713,7 @@ export default function Editor() {
         ) : null}
 
         {/* Toolbar */}
-        <View style={styles.toolbarWrap}>
+        <View style={[styles.toolbarWrap, { paddingBottom: Math.max(insets.bottom, spacing.sm) + spacing.md }]}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -1155,7 +1165,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.18)",
   },
   selBtnText: { color: "#fff", fontWeight: "600", fontSize: 13 },
-  toolbarWrap: { backgroundColor: "rgba(0,0,0,0.6)", paddingTop: spacing.sm, paddingBottom: spacing.lg },
+  toolbarWrap: { backgroundColor: "rgba(0,0,0,0.6)", paddingTop: spacing.sm },
+  headerSaveBtn: { backgroundColor: "#0A2463" },
   toolBtn: {
     flexDirection: "row",
     alignItems: "center",

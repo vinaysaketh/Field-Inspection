@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Sharing from "expo-sharing";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
-import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Modal, Pressable, Share, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
@@ -18,6 +18,7 @@ import { Observation } from "@/src/store/types";
 import { useTheme } from "@/src/theme/ThemeProvider";
 import { radius, spacing, typography } from "@/src/theme/tokens";
 import { formatLocationStamp } from "@/src/utils/location";
+import { SHARE_MESSAGE } from "@/src/constants";
 
 export default function ObservationDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -33,6 +34,8 @@ export default function ObservationDetail() {
       if (id) {
         getObservation(id).then(setObs);
       }
+      // Show the "Share the app" nudge once every 5th successful save
+      // (does not block save, does not share the current image).
       shouldShowSharePrompt().then((show) => {
         if (show) {
           setShowLikePrompt(true);
@@ -199,9 +202,9 @@ export default function ObservationDetail() {
           <View style={[styles.modalCard, { backgroundColor: colors.surface, maxWidth: 360 }]} testID="like-prompt">
             <View style={{ alignItems: "center", gap: 6 }}>
               <Ionicons name="heart" size={36} color={colors.primary} />
-              <Text style={[styles.sheetTitle, { color: colors.onSurface }]}>You{`'`}re on a roll!</Text>
+              <Text style={[styles.sheetTitle, { color: colors.onSurface }]}>Enjoying FieldSnap Pro?</Text>
               <Text style={{ color: colors.onSurfaceMuted, textAlign: "center", fontSize: 13 }}>
-                You{`'`}ve annotated 5 photos. If FieldSnap Pro is helping your work, please share it with a teammate.
+                If the app is helping your work, please share it with a teammate — it takes 5 seconds and helps us grow.
               </Text>
             </View>
             <View style={styles.modalActions}>
@@ -216,13 +219,16 @@ export default function ObservationDetail() {
                 testID="like-share-button"
                 onPress={async () => {
                   setShowLikePrompt(false);
-                  // Wait for the prompt's fade-out so iOS can present share UI
                   await new Promise((r) => setTimeout(r, 350));
-                  await onShare();
+                  try {
+                    await Share.share({ message: SHARE_MESSAGE });
+                  } catch (e: any) {
+                    toast.show("Share failed: " + (e?.message ?? "unknown"), { kind: "error" });
+                  }
                 }}
                 style={[styles.modalBtn, { backgroundColor: colors.primary }]}
               >
-                <Text style={{ color: colors.onPrimary, fontWeight: "600" }}>Share now</Text>
+                <Text style={{ color: colors.onPrimary, fontWeight: "600" }}>Share App</Text>
               </Pressable>
             </View>
           </View>

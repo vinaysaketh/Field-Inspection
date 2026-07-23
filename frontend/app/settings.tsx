@@ -1,11 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { Linking, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
 import { useToast } from "@/src/components/Toast";
+import { SUPPORT_EMAIL, APP_NAME } from "@/src/constants";
 import { loadSettings, saveSettings } from "@/src/store/settings";
 import { resetObservationCounter } from "@/src/store/observations";
 import { AppSettings, DEFAULT_SETTINGS, StampTemplate } from "@/src/store/types";
@@ -184,6 +185,51 @@ export default function Settings() {
               <Text style={[styles.rowDesc, { color: colors.onSurfaceMuted }]}>Next observation will start from OBS-0001</Text>
             </View>
             <Ionicons name="refresh" size={20} color={colors.onSurfaceMuted} />
+          </Pressable>
+        </Section>
+
+        <Section title="ABOUT" colors={colors}>
+          <Pressable
+            testID="open-privacy-policy"
+            onPress={() => router.push("/privacy")}
+            style={[styles.tplRow, { borderColor: colors.outline }]}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: colors.onSurface }]}>Privacy Policy</Text>
+              <Text style={[styles.rowDesc, { color: colors.onSurfaceMuted }]}>
+                How your data is handled on this device
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceMuted} />
+          </Pressable>
+
+          <Pressable
+            testID="contact-support-button"
+            onPress={async () => {
+              const subject = encodeURIComponent(`${APP_NAME} Feedback`);
+              const url = `mailto:${SUPPORT_EMAIL}?subject=${subject}`;
+              try {
+                const supported = await Linking.canOpenURL(url);
+                if (!supported) {
+                  toast.show("No email app configured", { kind: "error" });
+                  return;
+                }
+                await Linking.openURL(url);
+              } catch (e: any) {
+                toast.show("Couldn't open email: " + (e?.message ?? "unknown"), { kind: "error" });
+              }
+            }}
+            style={[styles.tplRow, { borderColor: colors.outline }]}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: colors.onSurface }]}>
+                Contact Support / Send Suggestions
+              </Text>
+              <Text style={[styles.rowDesc, { color: colors.onSurfaceMuted }]}>
+                Opens your email app. Report bugs, request features or share ideas.
+              </Text>
+            </View>
+            <Ionicons name="mail-outline" size={20} color={colors.onSurfaceMuted} />
           </Pressable>
         </Section>
 

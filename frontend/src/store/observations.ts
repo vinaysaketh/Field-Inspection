@@ -56,7 +56,7 @@ export async function getObservation(id: string): Promise<Observation | null> {
 }
 
 const ANNOTATION_COUNTER_KEY = "fsp.annotationCount";
-const SHARE_PROMPTED_KEY = "fsp.sharePrompted";
+const LAST_PROMPT_COUNT_KEY = "fsp.lastShareAppPromptCount";
 
 export async function incrementAnnotationCount(): Promise<number> {
   const current = (await storage.getItem<number>(ANNOTATION_COUNTER_KEY, 0)) ?? 0;
@@ -69,12 +69,19 @@ export async function getAnnotationCount(): Promise<number> {
   return ((await storage.getItem<number>(ANNOTATION_COUNTER_KEY, 0)) ?? 0) as number;
 }
 
+/**
+ * Returns true if the share-app modal should be shown after this save.
+ * Triggers on every 5th successful save (5, 10, 15, 20…) and remembers the
+ * last-prompted count so we never re-prompt for the same milestone twice.
+ */
 export async function shouldShowSharePrompt(): Promise<boolean> {
   const count = await getAnnotationCount();
-  const prompted = (await storage.getItem<boolean>(SHARE_PROMPTED_KEY, false)) ?? false;
-  return count >= 5 && !prompted;
+  if (count === 0 || count % 5 !== 0) return false;
+  const last = ((await storage.getItem<number>(LAST_PROMPT_COUNT_KEY, 0)) ?? 0) as number;
+  return count > last;
 }
 
 export async function markSharePrompted(): Promise<void> {
-  await storage.setItem(SHARE_PROMPTED_KEY, true);
+  const count = await getAnnotationCount();
+  await storage.setItem(LAST_PROMPT_COUNT_KEY, count);
 }

@@ -47,7 +47,21 @@ type Tool = "select" | "text" | "circle" | "arrow" | "rectangle" | "freedraw" | 
 type ColorName = keyof typeof annotationPalette;
 type Size = "S" | "M" | "L";
 
-type TextEl = { id: string; type: "text"; x: number; y: number; text: string; color: string; size: Size };
+type TextEl = {
+  id: string;
+  type: "text";
+  x: number;
+  y: number;
+  text: string;
+  size: Size;
+  // New in v1.1: rounded-label rendering with invert toggle.
+  //   invert === undefined → legacy single-colour text (pre-1.1 observations)
+  //   invert === false     → black background, white text
+  //   invert === true      → white background, black text
+  invert?: boolean;
+  // Legacy field — still respected for old elements.
+  color?: string;
+};
 type CircleEl = { id: string; type: "circle"; cx: number; cy: number; r: number; color: string };
 type ArrowEl = { id: string; type: "arrow"; x1: number; y1: number; x2: number; y2: number; color: string };
 type RectEl = { id: string; type: "rectangle"; x: number; y: number; w: number; h: number; color: string };
@@ -57,12 +71,12 @@ type Element = TextEl | CircleEl | ArrowEl | RectEl | FreeEl | MarkerEl;
 
 const TOOL_LIST: { tool: Tool; icon: keyof typeof Ionicons.glyphMap; label: string }[] = [
   { tool: "select", icon: "hand-left-outline", label: "Move" },
+  { tool: "marker", icon: "location", label: "Marker" },
   { tool: "text", icon: "text", label: "Text" },
   { tool: "circle", icon: "ellipse-outline", label: "Circle" },
   { tool: "arrow", icon: "arrow-forward", label: "Arrow" },
   { tool: "rectangle", icon: "square-outline", label: "Rect" },
   { tool: "freedraw", icon: "brush", label: "Draw" },
-  { tool: "marker", icon: "location", label: "Marker" },
 ];
 
 const SIZE_PX: Record<Size, number> = { S: 18, M: 26, L: 36 };
@@ -141,6 +155,7 @@ export default function Editor() {
   const [tool, setTool] = useState<Tool>("select");
   const [color, setColor] = useState<ColorName>("yellow");
   const [size, setSize] = useState<Size>("M");
+  const [textInvert, setTextInvert] = useState(false); // false = black bg / white text; true = inverted
   const [strokeWidth, setStrokeWidth] = useState(4);
 
   // History
@@ -255,6 +270,9 @@ export default function Editor() {
     if (tool === "text") {
       const hit = hitTest(elements, p.x, p.y);
       if (hit && hit.type === "text") {
+        // Load its invert into UI so re-edit uses same setting by default
+        setTextInvert(!!hit.invert);
+        setSize(hit.size);
         setTextModal({ x: hit.x, y: hit.y, value: hit.text, editingId: hit.id });
         setSelectedId(hit.id);
         return;
@@ -403,12 +421,11 @@ export default function Editor() {
     const v = textModal.value.trim();
     if (textModal.editingId) {
       if (!v) {
-        // empty = delete
         pushHistory(elements.filter((e) => e.id !== textModal.editingId));
       } else {
         const next = elements.map((e) =>
           e.id === textModal.editingId && e.type === "text"
-            ? { ...e, text: v, color: annotationPalette[color], size }
+            ? { ...e, text: v, size, invert: textInvert, color: undefined }
             : e,
         );
         pushHistory(next);
@@ -420,8 +437,8 @@ export default function Editor() {
         x: textModal.x,
         y: textModal.y,
         text: v,
-        color: annotationPalette[color],
         size,
+        invert: textInvert,
       };
       pushHistory([...elements, el]);
     }
@@ -532,7 +549,7 @@ export default function Editor() {
   const editSelectedText = () => {
     const el = elements.find((e) => e.id === selectedId);
     if (el && el.type === "text") {
-      setColor((Object.keys(annotationPalette) as ColorName[]).find((k) => annotationPalette[k] === el.color) ?? "yellow");
+      setTextInvert(!!el.invert);
       setSize(el.size);
       setTextModal({ x: el.x, y: el.y, value: el.text, editingId: el.id });
     }
@@ -551,7 +568,7 @@ export default function Editor() {
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
       <StatusBar style="light" />
-      <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
+      <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right", "bottom"]}>
         <View style={styles.topBar}>
           <Pressable testID="editor-close-button" onPress={() => router.back()} style={styles.iconBtn}>
             <Ionicons name="close" size={24} color="#fff" />
@@ -715,17 +732,41 @@ export default function Editor() {
           </ScrollView>
 
           <View style={styles.colorRow}>
-            {COLOR_ORDER.map((c) => (
-              <Pressable
-                key={c}
-                testID={`color-${c}`}
-                onPress={() => setColor(c)}
-                style={[
-                  styles.colorDot,
-                  { backgroundColor: annotationPalette[c], borderColor: color === c ? "#fff" : "rgba(255,255,255,0.2)" },
-                ]}
-              />
-            ))}
+            {tool === "text" ? (
+              <>
+                {/* Text uses black/white label — Normal or Invert */}
+                {([false, true] as const).map((inv) => (
+                  <Pressable
+                    key={inv ? "invert" : "normal"}
+                    testID={`text-invert-${inv ? "on" : "off"}`}
+                    onPress={() => setTextInvert(inv)}
+                    style={[
+                      styles.invertChip,
+                      {
+                        backgroundColor: inv ? "#FFFFFF" : "#000000",
+                        borderColor: textInvert === inv ? "#8CB8FF" : "rgba(255,255,255,0.25)",
+                      },
+                    ]}
+                  >
+                    <Text style={{ color: inv ? "#000000" : "#FFFFFF", fontWeight: "700", fontSize: 12 }}>
+                      {inv ? "Invert" : "Normal"}
+                    </Text>
+                  </Pressable>
+                ))}
+              </>
+            ) : (
+              COLOR_ORDER.map((c) => (
+                <Pressable
+                  key={c}
+                  testID={`color-${c}`}
+                  onPress={() => setColor(c)}
+                  style={[
+                    styles.colorDot,
+                    { backgroundColor: annotationPalette[c], borderColor: color === c ? "#fff" : "rgba(255,255,255,0.2)" },
+                  ]}
+                />
+              ))
+            )}
 
             <View style={{ flex: 1 }} />
 
@@ -839,7 +880,7 @@ export default function Editor() {
               style={[styles.modalInput, { color: colors.onSurface, borderColor: colors.outline }]}
               multiline
             />
-            <View style={{ flexDirection: "row", gap: 6, marginTop: 4 }}>
+            <View style={{ flexDirection: "row", gap: 6, marginTop: 4, alignItems: "center", flexWrap: "wrap" }}>
               {(["S", "M", "L"] as Size[]).map((s) => (
                 <Pressable
                   key={s}
@@ -850,17 +891,24 @@ export default function Editor() {
                   <Text style={{ color: size === s ? colors.primary : colors.onSurface, fontWeight: "700" }}>{s}</Text>
                 </Pressable>
               ))}
-              <View style={{ flex: 1 }} />
-              {COLOR_ORDER.map((c) => (
+              <View style={{ flex: 1, minWidth: 8 }} />
+              {([false, true] as const).map((inv) => (
                 <Pressable
-                  key={c}
-                  testID={`modal-color-${c}`}
-                  onPress={() => setColor(c)}
+                  key={inv ? "invert" : "normal"}
+                  testID={`modal-invert-${inv ? "on" : "off"}`}
+                  onPress={() => setTextInvert(inv)}
                   style={[
-                    styles.modalColorDot,
-                    { backgroundColor: annotationPalette[c], borderColor: color === c ? colors.onSurface : colors.outline },
+                    styles.modalInvertBtn,
+                    {
+                      backgroundColor: inv ? "#FFFFFF" : "#000000",
+                      borderColor: textInvert === inv ? colors.primary : colors.outline,
+                    },
                   ]}
-                />
+                >
+                  <Text style={{ color: inv ? "#000" : "#FFF", fontWeight: "700", fontSize: 12 }}>
+                    {inv ? "Invert" : "Normal"}
+                  </Text>
+                </Pressable>
               ))}
             </View>
             <View style={styles.modalActions}>
@@ -909,23 +957,53 @@ export default function Editor() {
 function renderElement(el: Element, selected: boolean) {
   const halo = selected ? <SelectionHalo el={el} /> : null;
   switch (el.type) {
-    case "text":
+    case "text": {
+      const fs = SIZE_PX[el.size];
+      // NEW invert-based label (v1.1+) …
+      if (el.invert !== undefined) {
+        const bg = el.invert ? "#FFFFFF" : "#000000";
+        const fg = el.invert ? "#000000" : "#FFFFFF";
+        const padX = Math.max(6, fs * 0.35);
+        const padY = Math.max(4, fs * 0.22);
+        const w = el.text.length * fs * 0.6 + padX * 2;
+        const h = fs + padY * 2;
+        // Anchor: (el.x, el.y) is baseline of top-left of legacy text; keep visual anchor consistent.
+        const rectX = el.x - padX;
+        const rectY = el.y - fs - padY * 0.5;
+        return (
+          <G key={el.id}>
+            {halo}
+            <Rect x={rectX} y={rectY} width={w} height={h} rx={Math.min(fs, 10)} ry={Math.min(fs, 10)} fill={bg} />
+            <SvgText
+              x={el.x}
+              y={el.y}
+              fill={fg}
+              fontSize={fs}
+              fontWeight="700"
+            >
+              {el.text}
+            </SvgText>
+          </G>
+        );
+      }
+      // Legacy single-colour text (pre-1.1)
       return (
         <G key={el.id}>
           {halo}
           <SvgText
             x={el.x}
             y={el.y}
-            fill={el.color}
+            fill={el.color || "#FFFF00"}
             stroke="rgba(0,0,0,0.7)"
             strokeWidth={el.size === "L" ? 1 : 0.6}
-            fontSize={SIZE_PX[el.size]}
+            fontSize={fs}
             fontWeight="700"
           >
             {el.text}
           </SvgText>
         </G>
       );
+    }
     case "circle":
       return (
         <G key={el.id}>
@@ -982,9 +1060,12 @@ function SelectionHalo({ el }: { el: Element }) {
   const stroke = "rgba(140, 200, 255, 0.9)";
   if (el.type === "text") {
     const fs = SIZE_PX[el.size];
-    const w = el.text.length * fs * 0.6 + 8;
+    const padX = el.invert !== undefined ? Math.max(6, fs * 0.35) : 4;
+    const padY = el.invert !== undefined ? Math.max(4, fs * 0.22) : 0;
+    const w = el.text.length * fs * 0.6 + padX * 2 + 4;
+    const h = fs + padY * 2 + 4;
     return (
-      <Rect x={el.x - 4} y={el.y - fs} width={w} height={fs + 8} stroke={stroke} strokeDasharray="4 3" strokeWidth={1.5} fill="none" />
+      <Rect x={el.x - padX - 2} y={el.y - fs - padY * 0.5 - 2} width={w} height={h} stroke={stroke} strokeDasharray="4 3" strokeWidth={1.5} fill="none" />
     );
   }
   if (el.type === "circle") {
@@ -1074,7 +1155,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.18)",
   },
   selBtnText: { color: "#fff", fontWeight: "600", fontSize: 13 },
-  toolbarWrap: { backgroundColor: "rgba(0,0,0,0.6)", paddingTop: spacing.sm, paddingBottom: spacing.sm },
+  toolbarWrap: { backgroundColor: "rgba(0,0,0,0.6)", paddingTop: spacing.sm, paddingBottom: spacing.lg },
   toolBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -1093,6 +1174,22 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   colorDot: { width: 28, height: 28, borderRadius: 14, borderWidth: 2 },
+  invertChip: {
+    paddingHorizontal: 14,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalInvertBtn: {
+    paddingHorizontal: 12,
+    height: 36,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   sizeBtn: {
     width: 36,
     height: 32,

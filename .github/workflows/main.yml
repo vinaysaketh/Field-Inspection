@@ -1,4 +1,4 @@
-name: Build APK
+name: Build Android
 
 on:
   push:
@@ -17,8 +17,8 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
         working-directory: frontend
+        run: npm install --legacy-peer-deps
 
       - name: Install Expo CLI
         run: npm install -g expo
@@ -31,8 +31,18 @@ jobs:
         working-directory: frontend/android
         run: ./gradlew assembleRelease
 
+      - name: Build AAB
+        working-directory: frontend/android
+        run: ./gradlew bundleRelease
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-release
+          name: app-release-apk
           path: frontend/android/app/build/outputs/apk/release/*.apk
+
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-aab
+          path: frontend/android/app/build/outputs/bundle/release/*.aab

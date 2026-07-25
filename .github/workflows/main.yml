@@ -1,18 +1,22 @@
-name: Build Android
+name: Build Android Release
 
 on:
   push:
-    branches: [ main, master ]
-  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: 20
 
@@ -20,29 +24,16 @@ jobs:
         working-directory: frontend
         run: npm install --legacy-peer-deps
 
-      - name: Install Expo CLI
-        run: npm install -g expo
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
 
-      - name: Generate Android project
+      - name: Verify Expo Login
+        run: eas whoami
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build Android App Bundle
         working-directory: frontend
-        run: npx expo prebuild --platform android --non-interactive
-
-      - name: Build APK
-        working-directory: frontend/android
-        run: ./gradlew assembleRelease
-
-      - name: Build AAB
-        working-directory: frontend/android
-        run: ./gradlew bundleRelease
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-release-apk
-          path: frontend/android/app/build/outputs/apk/release/*.apk
-
-      - name: Upload AAB
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-release-aab
-          path: frontend/android/app/build/outputs/bundle/release/*.aab
+        run: eas build --platform android --profile production --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}

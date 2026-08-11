@@ -156,7 +156,47 @@ frontend:
         agent: "testing"
         comment: "End-to-end verified on web preview. Added 3 markers -> SVG text = ['1','2','3']. Pressed Undo -> ['1','2']. Added new marker -> ['1','2','3']. New marker labeled '3' (NOT '4'). Fix in editor.tsx:301-307 uses elements.filter(marker).length + 1 at drop time as specified."
 
-  - task: "Editor: Crop Image tool"
+  - task: "Editor: Crop Image tool - drag smoothness fix"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/editor.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: false
+        agent: "user"
+        comment: "User reported: crop selection sometimes snaps back to previous position during drag. Boundary does not follow finger reliably. Requested a rewrite so drag is smooth and stable."
+      - working: "NA"
+        agent: "main"
+        comment: |
+          Root cause: The CropModal previously recreated `PanResponder` on every `cropRect` change (deps [cropRect, displayed.*]).
+          Each `setCropRect` during drag → re-render → new PanResponder instance → new `panHandlers` prop → React re-attaches
+          handlers on the underlying <View> mid-gesture, causing RN's touch system to reference stale closures and either
+          bail or restart the gesture (visible as a "snap back").
+          Fix: `bodyPan`, `tlPan`, `trPan`, `blPan`, `brPan` are now created ONCE via `useRef(PanResponder.create({...})).current`.
+          Handlers read the latest `cropRect` and `displayed` values through refs (`cropRectRef`, `displayedRef`). PanResponders
+          also set `onPanResponderTerminationRequest: () => false` so the responder is never yielded mid-gesture, and
+          `onPanResponderTerminate` clears `startRef` to prevent stale state. Confirm reads from `cropRectRef.current` so the
+          applied crop matches exactly what is on screen even if setCropRect hasn't flushed.
+          Sanity check (playwright mouse drag on br handle, 20 interpolated steps, +60w/+40h): rect grew 312->372 and
+          468->508 without snap-back. Header/tool ordering unchanged apart from Save being adjacent to Close.
+
+  - task: "Editor: Toolbar order - Save beside Close"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/editor.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          Header order changed to: Close (testID='editor-close-button') -> Save (testID='editor-header-save-button')
+          -> Title (testID='editor-title-button') -> Zoom-reset -> Undo. Verified via measured x-coords: 14 -> 66 -> 131 -> 280 -> 332.
+          Save/Close both are 44x44 with a 4px gap in a flex row. No duplicate Save, no changes to Save behavior,
+          no changes to title/pencil edit functionality.
     implemented: true
     working: "NA"
     file: "/app/frontend/app/editor.tsx"
@@ -215,10 +255,8 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Editor: Crop Image tool"
-    - "Editor: Header layout (Save leftmost, Close removed)"
-    - "Editor: Walkthrough - Crop Image step"
-    - "Editor: Walkthrough - Overlay step"
+    - "Editor: Crop Image tool - drag smoothness fix"
+    - "Editor: Toolbar order - Save beside Close"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -282,3 +320,47 @@ agent_communication:
       Minor (non-blocking) - CropModal uses <View pointerEvents="none">; browser logs deprecation warning "props.pointerEvents is deprecated. Use style.pointerEvents" (editor.tsx ~1344-1386). No functional impact.
 
       Report: /app/test_reports/iteration_9.json
+
+  - agent: "main"
+    message: |
+      Round 3 - two scoped changes to verify:
+
+      1. **Crop Image tool — drag smoothness fix**. PanResponders are now stable across renders
+         via useRef (previous impl recreated them on every setCropRect, causing React to re-attach
+         panHandlers mid-gesture -> rectangle "snapped back"). Verify smoothness on all 4 corner
+         handles and body drag using Playwright mouse (mousedown -> many small moves -> mouseup).
+         Assert rect moved AND stayed (no snap-back). Confirm applies current rect. Cancel closes
+         without change.
+
+      2. **Toolbar order — Save beside Close**. Verify header order left->right:
+         editor-close-button -> editor-header-save-button -> editor-title-button ->
+         editor-zoom-reset -> editor-undo-button. Save must be immediately after Close with
+         >=2px gap. No duplicate save. Close still navigates back. Title button still opens modal.
+
+      File of reference: /app/frontend/app/editor.tsx
+      Do NOT re-test previously verified items (marker numbering, overlay pinch, walkthrough steps,
+      crop tool basic existence).
+  - agent: "testing"
+    message: |
+      Round 3 verification (iteration_10) - BOTH items PASS on live web preview (390x844).
+
+      1. Crop drag smoothness: PASS. Tested each corner independently with fresh crop-modal state,
+         dragging INWARD to avoid clamp masking:
+           - tl (+40,+40): (39,202.5,312x468) -> (79,242.5,272x428) moved+stayed
+           - tr (-40,+40): (39,202.5,312x468) -> (39,242.5,272x428) moved+stayed
+           - bl (+40,-40): (39,202.5,312x468) -> (79,202.5,272x428) moved+stayed
+           - br (-40,-40): (39,202.5,312x468) -> (39,202.5,272x428) moved+stayed
+         Body drag (+15,+15): (39,202.5) -> (54,217.5) moved+stayed. 20 interpolated mouse-moves
+         per drag. 0 console errors. No snap-back observed in any sample.
+         Confirm uses latest rect: after tl corner drag +30,+30, tap Confirm -> modal closes,
+         re-opening crop shows new imageDims (aspect changed from 2:3 to ~4:5), confirming the
+         current (non-stale) rect was applied. Cancel closes cleanly without modifying image.
+
+      2. Toolbar order: PASS. Measured x-coordinates left->right:
+         editor-close-button (x=14, w=44) -> editor-header-save-button (x=66, w=44) ->
+         editor-title-button (x=131.2) -> editor-zoom-reset (x=280) -> editor-undo-button (x=332).
+         Gap between Close and Save = 8px (>=2px required). Exactly 1 save button in DOM
+         (no duplicate). Title button opens showTitleModal (title-input-field appears).
+         Close navigates back to '/' (home).
+
+      Report: /app/test_reports/iteration_10.json. No action items.

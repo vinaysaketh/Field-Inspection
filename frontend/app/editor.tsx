@@ -745,17 +745,28 @@ export default function Editor() {
       <StatusBar style="light" />
       <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
         <View style={styles.topBar}>
-          <Pressable
-            testID="editor-close-button"
-            accessibilityLabel="Close editor"
-            onPress={() => {
-              if (router.canGoBack()) router.back();
-              else router.replace("/");
-            }}
-            style={styles.iconBtn}
-          >
-            <Ionicons name="close" size={24} color="#fff" />
-          </Pressable>
+          <View style={{ flexDirection: "row", gap: 4 }}>
+            <Pressable
+              testID="editor-close-button"
+              accessibilityLabel="Close editor"
+              onPress={() => {
+                if (router.canGoBack()) router.back();
+                else router.replace("/");
+              }}
+              style={styles.iconBtn}
+            >
+              <Ionicons name="close" size={24} color="#fff" />
+            </Pressable>
+            <Pressable
+              testID="editor-header-save-button"
+              accessibilityLabel="Save"
+              onPress={save}
+              disabled={saving}
+              style={[styles.iconBtn, styles.headerSaveBtn, saving && { opacity: 0.5 }]}
+            >
+              <Ionicons name="save-outline" size={22} color="#fff" />
+            </Pressable>
+          </View>
           <Pressable
             testID="editor-title-button"
             onPress={() => setShowTitleModal(true)}
@@ -772,15 +783,6 @@ export default function Editor() {
             </Pressable>
             <Pressable testID="editor-undo-button" onPress={undo} disabled={!canUndo} style={[styles.iconBtn, !canUndo && { opacity: 0.35 }]}>
               <Ionicons name="arrow-undo" size={22} color="#fff" />
-            </Pressable>
-            <Pressable
-              testID="editor-header-save-button"
-              accessibilityLabel="Save"
-              onPress={save}
-              disabled={saving}
-              style={[styles.iconBtn, styles.headerSaveBtn, saving && { opacity: 0.5 }]}
-            >
-              <Ionicons name="save-outline" size={22} color="#fff" />
             </Pressable>
           </View>
         </View>
@@ -1181,6 +1183,18 @@ function CropModal(props: {
 
   const [cropRect, setCropRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
+  // Refs mirror the latest state so the stable PanResponder closures can read
+  // fresh values without needing to be re-created (recreating panHandlers
+  // mid-gesture is what caused the "snap back" bug).
+  const cropRectRef = useRef<typeof cropRect>(null);
+  useEffect(() => {
+    cropRectRef.current = cropRect;
+  }, [cropRect]);
+  const displayedRef = useRef(displayed);
+  useEffect(() => {
+    displayedRef.current = displayed;
+  }, [displayed]);
+
   // Initialise / reset crop rect whenever the modal opens or the image rect changes.
   useEffect(() => {
     if (!visible) return;
@@ -1192,17 +1206,21 @@ function CropModal(props: {
       w: displayed.w * (1 - 2 * pad),
       h: displayed.h * (1 - 2 * pad),
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, displayed.x, displayed.y, displayed.w, displayed.h]);
 
+  // Clamp against the LATEST displayed rect (read from ref so it stays fresh
+  // if the stage layout changes mid-gesture, e.g. rotation).
   const clampRect = (r: { x: number; y: number; w: number; h: number }) => {
-    const maxX = displayed.x + displayed.w;
-    const maxY = displayed.y + displayed.h;
+    const d = displayedRef.current;
+    const maxX = d.x + d.w;
+    const maxY = d.y + d.h;
     let { x, y, w, h } = r;
     if (w < MIN) w = MIN;
     if (h < MIN) h = MIN;
-    if (x < displayed.x) x = displayed.x;
-    if (y < displayed.y) y = displayed.y;
+    if (w > d.w) w = d.w;
+    if (h > d.h) h = d.h;
+    if (x < d.x) x = d.x;
+    if (y < d.y) y = d.y;
     if (x + w > maxX) x = maxX - w;
     if (y + h > maxY) y = maxY - h;
     return { x, y, w, h };
@@ -1210,43 +1228,59 @@ function CropModal(props: {
 
   const startRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
 
-  const bodyPan = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderGrant: () => {
-          startRef.current = cropRect ? { ...cropRect } : null;
-        },
-        onPanResponderMove: (_e, g) => {
-          if (!startRef.current) return;
-          setCropRect(
-            clampRect({
-              x: startRef.current.x + g.dx,
-              y: startRef.current.y + g.dy,
-              w: startRef.current.w,
-              h: startRef.current.h,
-            }),
-          );
-        },
-        onPanResponderRelease: () => {
-          startRef.current = null;
-        },
-      }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [cropRect, displayed.x, displayed.y, displayed.w, displayed.h],
-  );
-
-  const makeCornerPan = (corner: "tl" | "tr" | "bl" | "br") =>
+  // --- Stable PanResponders (created ONCE) -------------------------------
+  // Recreating PanResponders on every render causes React to re-attach new
+  // `panHandlers` props on the underlying View mid-gesture. RN's touch system
+  // then references stale closures and can bail/restart the gesture, which
+  // manifests as the crop rectangle "snapping back" to its previous position.
+  // Reading latest crop / displayed via refs keeps handler identity stable
+  // while still respecting the newest state.
+  const bodyPan = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => true,
+      onMoveShouldSetPanResponderCapture: () => true,
+      onPanResponderTerminationRequest: () => false,
+      onShouldBlockNativeResponder: () => true,
       onPanResponderGrant: () => {
-        startRef.current = cropRect ? { ...cropRect } : null;
+        startRef.current = cropRectRef.current ? { ...cropRectRef.current } : null;
       },
       onPanResponderMove: (_e, g) => {
-        if (!startRef.current) return;
         const s = startRef.current;
+        if (!s) return;
+        setCropRect(
+          clampRect({
+            x: s.x + g.dx,
+            y: s.y + g.dy,
+            w: s.w,
+            h: s.h,
+          }),
+        );
+      },
+      onPanResponderRelease: () => {
+        startRef.current = null;
+      },
+      onPanResponderTerminate: () => {
+        startRef.current = null;
+      },
+    }),
+  ).current;
+
+  const makeCornerHandlers = (corner: "tl" | "tr" | "bl" | "br") =>
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => true,
+      onMoveShouldSetPanResponderCapture: () => true,
+      onPanResponderTerminationRequest: () => false,
+      onShouldBlockNativeResponder: () => true,
+      onPanResponderGrant: () => {
+        startRef.current = cropRectRef.current ? { ...cropRectRef.current } : null;
+      },
+      onPanResponderMove: (_e, g) => {
+        const s = startRef.current;
+        if (!s) return;
         let x = s.x, y = s.y, w = s.w, h = s.h;
         if (corner === "tl") {
           x = s.x + g.dx;
@@ -1278,20 +1312,28 @@ function CropModal(props: {
       onPanResponderRelease: () => {
         startRef.current = null;
       },
+      onPanResponderTerminate: () => {
+        startRef.current = null;
+      },
     });
 
-  const tlPan = useMemo(() => makeCornerPan("tl"), /* eslint-disable-next-line react-hooks/exhaustive-deps */ [cropRect, displayed.x, displayed.y, displayed.w, displayed.h]);
-  const trPan = useMemo(() => makeCornerPan("tr"), /* eslint-disable-next-line react-hooks/exhaustive-deps */ [cropRect, displayed.x, displayed.y, displayed.w, displayed.h]);
-  const blPan = useMemo(() => makeCornerPan("bl"), /* eslint-disable-next-line react-hooks/exhaustive-deps */ [cropRect, displayed.x, displayed.y, displayed.w, displayed.h]);
-  const brPan = useMemo(() => makeCornerPan("br"), /* eslint-disable-next-line react-hooks/exhaustive-deps */ [cropRect, displayed.x, displayed.y, displayed.w, displayed.h]);
+  const tlPan = useRef(makeCornerHandlers("tl")).current;
+  const trPan = useRef(makeCornerHandlers("tr")).current;
+  const blPan = useRef(makeCornerHandlers("bl")).current;
+  const brPan = useRef(makeCornerHandlers("br")).current;
 
   const handleConfirm = () => {
-    if (!cropRect) return;
-    const fit = displayed.scaleFit || 1;
-    const originX = Math.max(0, Math.round((cropRect.x - displayed.x) / fit));
-    const originY = Math.max(0, Math.round((cropRect.y - displayed.y) / fit));
-    const width = Math.max(1, Math.round(cropRect.w / fit));
-    const height = Math.max(1, Math.round(cropRect.h / fit));
+    // Use the LATEST cropRect from ref (state may not have flushed if user
+    // releases the drag and taps Confirm on the same frame). This guarantees
+    // the applied crop matches exactly what the user is seeing.
+    const current = cropRectRef.current;
+    if (!current) return;
+    const d = displayedRef.current;
+    const fit = d.scaleFit || 1;
+    const originX = Math.max(0, Math.round((current.x - d.x) / fit));
+    const originY = Math.max(0, Math.round((current.y - d.y) / fit));
+    const width = Math.max(1, Math.round(current.w / fit));
+    const height = Math.max(1, Math.round(current.h / fit));
     const safeW = Math.min(width, imageDims.w - originX);
     const safeH = Math.min(height, imageDims.h - originY);
     onConfirm({ originX, originY, width: safeW, height: safeH });

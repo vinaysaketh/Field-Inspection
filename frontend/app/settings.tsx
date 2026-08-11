@@ -1,12 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Linking, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
 import { useToast } from "@/src/components/Toast";
-import { SUPPORT_EMAIL, APP_NAME } from "@/src/constants";
+import { APP_NAME, APP_STORE_URL, APP_VERSION, MARKET_URL, SHARE_MESSAGE, SUPPORT_EMAIL } from "@/src/constants";
+import { resetWalkthrough } from "@/src/onboarding/walkthrough";
 import { loadSettings, saveSettings } from "@/src/store/settings";
 import { resetObservationCounter } from "@/src/store/observations";
 import { AppSettings, DEFAULT_SETTINGS, StampTemplate } from "@/src/store/types";
@@ -188,30 +189,86 @@ export default function Settings() {
           </Pressable>
         </Section>
 
-        <Section title="ABOUT" colors={colors}>
+        <Section title="APP" colors={colors}>
           <Pressable
-            testID="open-privacy-policy"
-            onPress={() => router.push("/privacy")}
+            testID="rate-app-button"
+            onPress={async () => {
+              try {
+                const supported = await Linking.canOpenURL(MARKET_URL);
+                await Linking.openURL(supported ? MARKET_URL : APP_STORE_URL);
+              } catch {
+                toast.show("Couldn't open the Play Store", { kind: "error" });
+              }
+            }}
             style={[styles.tplRow, { borderColor: colors.outline }]}
           >
             <View style={{ flex: 1 }}>
-              <Text style={[styles.rowLabel, { color: colors.onSurface }]}>Privacy Policy</Text>
-              <Text style={[styles.rowDesc, { color: colors.onSurfaceMuted }]}>
-                How your data is handled on this device
-              </Text>
+              <Text style={[styles.rowLabel, { color: colors.onSurface }]}>Rate {APP_NAME}</Text>
+              <Text style={[styles.rowDesc, { color: colors.onSurfaceMuted }]}>Open the Play Store listing</Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceMuted} />
+            <Ionicons name="star-outline" size={20} color={colors.onSurfaceMuted} />
           </Pressable>
 
           <Pressable
-            testID="contact-support-button"
+            testID="share-app-button"
             onPress={async () => {
-              const subject = encodeURIComponent(`${APP_NAME} Feedback`);
-              const url = `mailto:${SUPPORT_EMAIL}?subject=${subject}`;
+              try {
+                await Share.share({ message: SHARE_MESSAGE });
+              } catch (e: any) {
+                toast.show("Share failed: " + (e?.message ?? "unknown"), { kind: "error" });
+              }
+            }}
+            style={[styles.tplRow, { borderColor: colors.outline }]}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: colors.onSurface }]}>Share {APP_NAME}</Text>
+              <Text style={[styles.rowDesc, { color: colors.onSurfaceMuted }]}>Share the app link (not your photos)</Text>
+            </View>
+            <Ionicons name="share-social-outline" size={20} color={colors.onSurfaceMuted} />
+          </Pressable>
+
+          <Pressable
+            testID="replay-tutorial-button"
+            onPress={async () => {
+              await resetWalkthrough();
+              toast.show("Tutorial will replay on home", { kind: "info" });
+              router.replace("/");
+            }}
+            style={[styles.tplRow, { borderColor: colors.outline }]}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: colors.onSurface }]}>Replay Tutorial</Text>
+              <Text style={[styles.rowDesc, { color: colors.onSurfaceMuted }]}>Show the first-time walkthrough again</Text>
+            </View>
+            <Ionicons name="school-outline" size={20} color={colors.onSurfaceMuted} />
+          </Pressable>
+        </Section>
+
+        <Section title="HELP & SUPPORT" colors={colors}>
+          <Pressable
+            testID="open-help-faq"
+            onPress={() => router.push("/help")}
+            style={[styles.tplRow, { borderColor: colors.outline }]}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: colors.onSurface }]}>Help & FAQ</Text>
+              <Text style={[styles.rowDesc, { color: colors.onSurfaceMuted }]}>Common questions and how-tos</Text>
+            </View>
+            <Ionicons name="help-circle-outline" size={20} color={colors.onSurfaceMuted} />
+          </Pressable>
+
+          <Pressable
+            testID="send-feedback-button"
+            onPress={async () => {
+              const subject = encodeURIComponent(`${APP_NAME} – User Feedback`);
+              const body = encodeURIComponent(
+                `${APP_NAME}\nApp version: ${APP_VERSION}\nPlatform: ${Platform.OS} ${Platform.Version}\n\nPlease describe your feedback, issue, or feature request below:\n\n`,
+              );
+              const url = `mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`;
               try {
                 const supported = await Linking.canOpenURL(url);
                 if (!supported) {
-                  toast.show("No email app configured", { kind: "error" });
+                  toast.show("No email app is installed", { kind: "error" });
                   return;
                 }
                 await Linking.openURL(url);
@@ -222,19 +279,43 @@ export default function Settings() {
             style={[styles.tplRow, { borderColor: colors.outline }]}
           >
             <View style={{ flex: 1 }}>
-              <Text style={[styles.rowLabel, { color: colors.onSurface }]}>
-                Contact Support / Send Suggestions
-              </Text>
+              <Text style={[styles.rowLabel, { color: colors.onSurface }]}>Send Feedback</Text>
               <Text style={[styles.rowDesc, { color: colors.onSurfaceMuted }]}>
-                Opens your email app. Report bugs, request features or share ideas.
+                Report bugs, request features, or share suggestions
               </Text>
             </View>
             <Ionicons name="mail-outline" size={20} color={colors.onSurfaceMuted} />
           </Pressable>
         </Section>
 
+        <Section title="INFORMATION" colors={colors}>
+          <Pressable
+            testID="open-about"
+            onPress={() => router.push("/about")}
+            style={[styles.tplRow, { borderColor: colors.outline }]}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: colors.onSurface }]}>About {APP_NAME}</Text>
+              <Text style={[styles.rowDesc, { color: colors.onSurfaceMuted }]}>Version, developer & links</Text>
+            </View>
+            <Ionicons name="information-circle-outline" size={20} color={colors.onSurfaceMuted} />
+          </Pressable>
+
+          <Pressable
+            testID="open-privacy-policy"
+            onPress={() => router.push("/privacy")}
+            style={[styles.tplRow, { borderColor: colors.outline }]}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowLabel, { color: colors.onSurface }]}>Privacy Policy</Text>
+              <Text style={[styles.rowDesc, { color: colors.onSurfaceMuted }]}>How your data is handled on this device</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceMuted} />
+          </Pressable>
+        </Section>
+
         <Text style={{ color: colors.onSurfaceMuted, textAlign: "center", fontSize: 12, marginTop: spacing.md }}>
-          FieldSnap Pro • v1.1
+          {APP_NAME} • v{APP_VERSION}
         </Text>
       </ScrollView>
     </SafeAreaView>

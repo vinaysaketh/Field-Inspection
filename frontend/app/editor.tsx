@@ -399,10 +399,16 @@ export default function Editor() {
     setHistory(trimmed);
     setHistoryIdx(trimmed.length - 1);
   };
-  const undo = () => historyIdx > 0 && setHistoryIdx(historyIdx - 1);
-  const redo = () => historyIdx < history.length - 1 && setHistoryIdx(historyIdx + 1);
+  const undo = () => {
+    if (historyIdx > 0) {
+      // Requirement: Marker numbering counter resets whenever Undo is pressed
+      // so the next new marker starts back at 1. Existing markers already drawn
+      // keep their numbers — only the counter for future markers is reset.
+      markerCounterRef.current = 0;
+      setHistoryIdx(historyIdx - 1);
+    }
+  };
   const canUndo = historyIdx > 0;
-  const canRedo = historyIdx < history.length - 1;
 
   // -------- Load location & obs number --------
   useEffect(() => {
@@ -598,9 +604,6 @@ export default function Editor() {
             </Pressable>
             <Pressable testID="editor-undo-button" onPress={undo} disabled={!canUndo} style={[styles.iconBtn, !canUndo && { opacity: 0.35 }]}>
               <Ionicons name="arrow-undo" size={22} color="#fff" />
-            </Pressable>
-            <Pressable testID="editor-redo-button" onPress={redo} disabled={!canRedo} style={[styles.iconBtn, !canRedo && { opacity: 0.35 }]}>
-              <Ionicons name="arrow-redo" size={22} color="#fff" />
             </Pressable>
             <Pressable
               testID="editor-header-save-button"

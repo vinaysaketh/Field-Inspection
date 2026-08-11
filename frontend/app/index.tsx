@@ -12,6 +12,7 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { spacing, radius, typography } from "@/src/theme/tokens";
 import { processGeocodeQueue } from "@/src/utils/location";
 import { useToast } from "@/src/components/Toast";
+import { Walkthrough } from "@/src/onboarding/Walkthrough";
 
 export default function Home() {
   const { colors, scheme } = useTheme();
@@ -163,6 +164,7 @@ export default function Home() {
           </Pressable>
         )}
       />
+      <Walkthrough />
     </SafeAreaView>
   );
 }

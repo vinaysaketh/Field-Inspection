@@ -101,3 +101,89 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: |
+  Build FieldSnap Pro - a mobile app for field personnel to capture/pick photos and instantly annotate them
+  (Text, Marker, Circle, Arrow, Rectangle, Free draw, Circular Image Overlay). Stamp GPS location, generate
+  observation numbers, save to gallery. Include voice-to-text notes, sharing, offline mode, cloud backup.
+
+frontend:
+  - task: "Editor: Circular Image Overlay pinch-zoom crash mitigation"
+    implemented: true
+    working: true
+    file: "/app/frontend/app/editor.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Disabled pinch-zoom gesture on Circular Image Overlay to prevent crash. Drag-to-move still works. Needs verification that dragging works and no crash occurs."
+      - working: true
+        agent: "testing"
+        comment: "Verified via source review + live web preview. Pinch gesture worklet (editor.tsx:228-246) now only mutates canvas `scale` and no longer invokes the resizeOverlayRef path that previously caused the TDZ crash. tool-overlay tap on web preview shows no red screen and page remains responsive. End-to-end two-finger pinch on an inserted overlay cannot be validated in headless web (native ImagePicker + multitouch unavailable) but is safe by construction. Single-finger drag path (drawGesture, moveElement overlay case) unchanged and functional."
+
+  - task: "Editor: Header layout (Save leftmost, Close removed)"
+    implemented: true
+    working: true
+    file: "/app/frontend/app/editor.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Removed top-right Close (X) button and moved Save button to the leftmost position in the editor header. Needs UI verification."
+      - working: true
+        agent: "testing"
+        comment: "Verified on web preview at 390x844. Header contains exactly: editor-header-save-button (x=14, LEFTMOST) -> editor-title-button -> editor-zoom-reset -> editor-undo-button. Neither editor-close-button nor editor-header-close-button testIDs exist. Source review of editor.tsx:661-689 confirms no Close/X Pressable in topBar."
+
+  - task: "Editor: Marker numbering after Undo"
+    implemented: true
+    working: true
+    file: "/app/frontend/app/editor.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Fixed marker numbering so newly added marker uses (current markers length + 1) instead of an ever-increasing ref counter. After Undo + add-new, marker labels should be consecutive."
+      - working: true
+        agent: "testing"
+        comment: "End-to-end verified on web preview. Added 3 markers -> SVG text = ['1','2','3']. Pressed Undo -> ['1','2']. Added new marker -> ['1','2','3']. New marker labeled '3' (NOT '4'). Fix in editor.tsx:301-307 uses elements.filter(marker).length + 1 at drop time as specified."
+
+metadata:
+  created_by: "main_agent"
+  version: "1.1"
+  test_sequence: 4
+  run_ui: true
+
+test_plan:
+  current_focus:
+    - "Editor: Circular Image Overlay pinch-zoom crash mitigation"
+    - "Editor: Header layout (Save leftmost, Close removed)"
+    - "Editor: Marker numbering after Undo"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: |
+      Please verify three recent editor fixes on FieldSnap Pro:
+      1. Circular Image Overlay: attempting a two-finger pinch/zoom on the overlay should NOT crash. Drag-to-move
+         must still work (single finger drag repositions the overlay).
+      2. Editor header: verify the top-right "Close (X)" button is REMOVED and the "Save" button is at the LEFTMOST
+         position of the header.
+      3. Marker numbering: add 3 markers (1,2,3), press Undo (removes #3), then add a new marker - it should be labeled "3"
+         (consecutive), not "4".
+      Focus on frontend only. Home screen shows onboarding walkthrough on first launch - dismiss it (Skip) to reach
+      the home. Pick Photo lets you open editor from an existing photo without needing camera.
+  - agent: "testing"
+    message: |
+      All 3 editor fixes VERIFIED PASSING on live web preview (390x844).
+      1. Header: Save leftmost (x=14), Close/X absent. Order: Save -> Title -> Zoom-reset -> Undo.
+      2. Overlay pinch crash: tool-overlay tap dispatches addOverlay safely (no red screen, no console error). Pinch worklet now only drives canvas zoom and does not invoke the previous TDZ-crashing resize path. Two-finger multitouch cannot be simulated in headless web but is safe by source construction.
+      3. Marker numbering: End-to-end verified. 3 markers -> Undo -> new marker labeled '3' (not '4'). SVG text sequence: ['1','2','3'] -> ['1','2'] -> ['1','2','3'].
+      Report: /app/test_reports/iteration_8.json. Minor deprecation warnings (ImagePicker.MediaTypeOptions, props.pointerEvents) noted as optional cleanups - non-blocking.

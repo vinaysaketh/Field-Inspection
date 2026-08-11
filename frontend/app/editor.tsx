@@ -176,7 +176,6 @@ export default function Editor() {
 
   const [draft, setDraft] = useState<Element | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const markerCounterRef = useRef(0);
 
   // Modal state
   const [textModal, setTextModal] = useState<{ x: number; y: number; value: string; editingId?: string } | null>(null);
@@ -231,12 +230,6 @@ export default function Editor() {
       savedScale.value = scale.value;
     })
     .onUpdate((e) => {
-      // If an overlay is selected, resize the overlay instead of the canvas.
-      if (selectedOverlayInitR.value > 0) {
-        const nextR = Math.max(20, Math.min(displayed.w * 0.9, selectedOverlayInitR.value * e.scale));
-        runOnJS((r: number) => resizeOverlayRef.current(r))(nextR);
-        return;
-      }
       const next = Math.max(1, Math.min(5, savedScale.value * e.scale));
       scale.value = next;
     })
@@ -250,7 +243,6 @@ export default function Editor() {
         savedTx.value = 0;
         savedTy.value = 0;
       }
-      selectedOverlayInitR.value = 0;
     });
 
   const pan2 = Gesture.Pan()
@@ -303,13 +295,16 @@ export default function Editor() {
       return;
     }
     if (tool === "marker") {
-      markerCounterRef.current += 1;
+      // Requirement: marker number = existing-markers + 1 at drop time
+      // (not a monotonically increasing counter). If Undo removed markers,
+      // the next new marker reuses the next natural slot.
+      const existingMarkers = elements.filter((e) => e.type === "marker").length;
       const el: MarkerEl = {
         id: genId(),
         type: "marker",
         x: p.x,
         y: p.y,
-        n: markerCounterRef.current,
+        n: existingMarkers + 1,
         color: annotationPalette[color],
       };
       pushHistory([...elements, el]);
@@ -419,10 +414,8 @@ export default function Editor() {
   };
   const undo = () => {
     if (historyIdx > 0) {
-      // Requirement: Marker numbering counter resets whenever Undo is pressed
-      // so the next new marker starts back at 1. Existing markers already drawn
-      // keep their numbers — only the counter for future markers is reset.
-      markerCounterRef.current = 0;
+      // Marker numbering is now derived from `elements.filter(marker).length`
+      // at drop time, so undo naturally frees the highest-used number.
       setHistoryIdx(historyIdx - 1);
     }
   };
@@ -666,8 +659,14 @@ export default function Editor() {
       <StatusBar style="light" />
       <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
         <View style={styles.topBar}>
-          <Pressable testID="editor-close-button" onPress={() => router.back()} style={styles.iconBtn}>
-            <Ionicons name="close" size={24} color="#fff" />
+          <Pressable
+            testID="editor-header-save-button"
+            accessibilityLabel="Save"
+            onPress={save}
+            disabled={saving}
+            style={[styles.iconBtn, styles.headerSaveBtn, saving && { opacity: 0.5 }]}
+          >
+            <Ionicons name="save-outline" size={22} color="#fff" />
           </Pressable>
           <Pressable
             testID="editor-title-button"
@@ -685,15 +684,6 @@ export default function Editor() {
             </Pressable>
             <Pressable testID="editor-undo-button" onPress={undo} disabled={!canUndo} style={[styles.iconBtn, !canUndo && { opacity: 0.35 }]}>
               <Ionicons name="arrow-undo" size={22} color="#fff" />
-            </Pressable>
-            <Pressable
-              testID="editor-header-save-button"
-              accessibilityLabel="Save"
-              onPress={save}
-              disabled={saving}
-              style={[styles.iconBtn, styles.headerSaveBtn, saving && { opacity: 0.5 }]}
-            >
-              <Ionicons name="save-outline" size={22} color="#fff" />
             </Pressable>
           </View>
         </View>

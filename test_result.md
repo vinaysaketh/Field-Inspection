@@ -137,6 +137,9 @@ frontend:
       - working: true
         agent: "testing"
         comment: "Verified on web preview at 390x844. Header contains exactly: editor-header-save-button (x=14, LEFTMOST) -> editor-title-button -> editor-zoom-reset -> editor-undo-button. Neither editor-close-button nor editor-header-close-button testIDs exist. Source review of editor.tsx:661-689 confirms no Close/X Pressable in topBar."
+      - working: "NA"
+        agent: "main"
+        comment: "REVISED per user request. Restored Close (X) at top-left (testID='editor-close-button', navigates back / replaces to /). Save moved back to TOP-RIGHT alongside zoom-reset and undo. Order is now: Close -> Title -> Zoom-reset -> Undo -> Save."
 
   - task: "Editor: Marker numbering after Undo"
     implemented: true
@@ -153,17 +156,69 @@ frontend:
         agent: "testing"
         comment: "End-to-end verified on web preview. Added 3 markers -> SVG text = ['1','2','3']. Pressed Undo -> ['1','2']. Added new marker -> ['1','2','3']. New marker labeled '3' (NOT '4'). Fix in editor.tsx:301-307 uses elements.filter(marker).length + 1 at drop time as specified."
 
+  - task: "Editor: Crop Image tool"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/editor.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          Added Crop tool to the bottom toolbar (testID='tool-crop', icon crop-outline, label 'Crop').
+          Tapping it opens a full-screen CropModal (testID='crop-modal') with:
+            - draggable rectangle (testID='crop-rect')
+            - 4 corner handles: crop-handle-tl / crop-handle-tr / crop-handle-bl / crop-handle-br
+            - Cancel: crop-cancel-button (closes without changing image)
+            - Confirm: crop-confirm-button (crops via expo-image-manipulator, updates imageUri & imageDims,
+              translates existing annotations by (-originX,-originY), drops out-of-frame elements, resets history)
+          Verified in web preview: tapping Crop opens modal with a default centered 80% rectangle,
+          Confirm produces a tighter image with expected dimensions.
+
+  - task: "Editor: Walkthrough - Crop Image step"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/onboarding/walkthrough.ts"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          Added a 'Crop Image' step (icon crop-outline) between Notes and Save.
+          Verified in preview: step 5 of 8 shows the crop icon, title 'Crop Image' and the specified copy.
+
+  - task: "Editor: Walkthrough - Overlay step"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/onboarding/walkthrough.ts"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: |
+          Added an 'Overlay' step (icon add-circle-outline) between Crop and Save.
+          Copy: 'Overlay - Add another photograph as a circular detail image on top of your main photograph.
+          Drag the overlay to position it where you need it.' Intentionally OMITS pinch/resize wording per requirement.
+          Verified in preview: step 6 of 8 shows the overlay icon and specified copy (no pinch/resize mention).
+
 metadata:
   created_by: "main_agent"
-  version: "1.1"
-  test_sequence: 4
+  version: "1.2"
+  test_sequence: 5
   run_ui: true
 
 test_plan:
   current_focus:
-    - "Editor: Circular Image Overlay pinch-zoom crash mitigation"
+    - "Editor: Crop Image tool"
     - "Editor: Header layout (Save leftmost, Close removed)"
-    - "Editor: Marker numbering after Undo"
+    - "Editor: Walkthrough - Crop Image step"
+    - "Editor: Walkthrough - Overlay step"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -187,3 +242,43 @@ agent_communication:
       2. Overlay pinch crash: tool-overlay tap dispatches addOverlay safely (no red screen, no console error). Pinch worklet now only drives canvas zoom and does not invoke the previous TDZ-crashing resize path. Two-finger multitouch cannot be simulated in headless web but is safe by source construction.
       3. Marker numbering: End-to-end verified. 3 markers -> Undo -> new marker labeled '3' (not '4'). SVG text sequence: ['1','2','3'] -> ['1','2'] -> ['1','2','3'].
       Report: /app/test_reports/iteration_8.json. Minor deprecation warnings (ImagePicker.MediaTypeOptions, props.pointerEvents) noted as optional cleanups - non-blocking.
+  - agent: "main"
+    message: |
+      Round 2 - four new scoped changes to verify:
+
+      1. **Crop Image tool** — Bottom toolbar has a new `tool-crop` (crop-outline icon, label 'Crop').
+         Tapping it opens `crop-modal` with a draggable rectangle (`crop-rect`), 4 corner handles
+         (`crop-handle-tl`, `crop-handle-tr`, `crop-handle-bl`, `crop-handle-br`), Cancel (`crop-cancel-button`)
+         and Confirm (`crop-confirm-button`). Confirm should crop via expo-image-manipulator and return to
+         the editor with the cropped image. Cancel should close without changes.
+
+      2. **Close (X) button restored** — Top toolbar now shows: Close (X) at TOP-LEFT (testID='editor-close-button'),
+         Title in the middle, and Save (testID='editor-header-save-button') on the TOP-RIGHT along with
+         zoom-reset and undo. Tap Close should exit the editor (router.back or router.replace('/')).
+
+      3. **Tutorial - Crop step** — WALKTHROUGH_STEPS now includes a "Crop Image" step (step 5 of 8) with
+         copy: 'Crop Image - Crop your photograph to focus on the area you want to document...'.
+
+      4. **Tutorial - Overlay step** — WALKTHROUGH_STEPS now includes an "Overlay" step (step 6 of 8) with
+         copy: 'Overlay - Add another photograph as a circular detail image on top of your main photograph.
+         Drag the overlay to position it where you need it.' Must NOT mention pinch/resize.
+
+      Do NOT re-test the previously-verified items (marker numbering, overlay pinch crash).
+
+      Files of reference:
+        - /app/frontend/app/editor.tsx (crop tool + close button + CropModal)
+        - /app/frontend/src/onboarding/walkthrough.ts (new tutorial steps)  - agent: "testing"
+    message: |
+      Round 2 verification (iteration_9) - ALL 4 items PASS on live web preview (375x812).
+
+      1. Crop Image tool: PASS. tool-crop opens crop-modal with crop-rect + 4 corner handles (tl/tr/bl/br) + crop-cancel-button + crop-confirm-button. Confirm closes modal and applies crop (no crash, no red screen). Cancel closes modal cleanly and image is unchanged.
+
+      2. Close (X) button restored: PASS. Header order left-to-right measured via getBoundingClientRect: editor-close-button (x=14) -> editor-title-button (x=72) -> editor-zoom-reset (x=213) -> editor-undo-button (x=265) -> editor-header-save-button (x=317). Tap Close navigates to '/' (home).
+
+      3. Walkthrough Crop Image step: PASS. Total steps now 8 (counter reads '5 of 8'). Step 5 title "Crop Image", body contains "focus on the area you want to document", icon crop-outline.
+
+      4. Walkthrough Overlay step: PASS. Step 6 title "Overlay", body contains exact phrase "Drag the overlay to position it where you need it". VERIFIED body does NOT contain 'pinch', 'zoom', or 'resize' (case-insensitive check). Icon add-circle-outline.
+
+      Minor (non-blocking) - CropModal uses <View pointerEvents="none">; browser logs deprecation warning "props.pointerEvents is deprecated. Use style.pointerEvents" (editor.tsx ~1344-1386). No functional impact.
+
+      Report: /app/test_reports/iteration_9.json

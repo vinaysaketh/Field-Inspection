@@ -40,6 +40,16 @@ export const WALKTHROUGH_STEPS: WalkthroughStep[] = [
     body: "Tap the Notes tool (next to Text) to add a written observation. Notes are separate from image annotations.",
   },
   {
+    icon: "crop-outline",
+    title: "Crop Image",
+    body: "Crop Image – Crop your photograph to focus on the area you want to document. Tap Crop in the bottom toolbar, adjust the crop box, then Confirm.",
+  },
+  {
+    icon: "add-circle-outline",
+    title: "Overlay",
+    body: "Overlay – Add another photograph as a circular detail image on top of your main photograph. Drag the overlay to position it where you need it.",
+  },
+  {
     icon: "save-outline",
     title: "Save",
     body: "Tap the Save icon at the top-right of the editor. The annotated image is stored locally and saved to your device Gallery.",

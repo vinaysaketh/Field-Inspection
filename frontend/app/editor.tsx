@@ -1,12 +1,14 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image as ExpoImage } from "expo-image";
 import * as FileSystem from "expo-file-system/legacy";
+import * as ImageManipulator from "expo-image-manipulator";
 import * as MediaLibrary from "expo-media-library";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Image as RNImage,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -46,7 +48,7 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { annotationPalette, radius, spacing } from "@/src/theme/tokens";
 import { formatLocationStamp, getCurrentLocation, queueForGeocoding } from "@/src/utils/location";
 
-type Tool = "select" | "text" | "circle" | "arrow" | "rectangle" | "freedraw" | "marker" | "notes" | "overlay";
+type Tool = "select" | "text" | "circle" | "arrow" | "rectangle" | "freedraw" | "marker" | "notes" | "overlay" | "crop";
 type ColorName = keyof typeof annotationPalette;
 type Size = "S" | "M" | "L";
 
@@ -84,6 +86,7 @@ const TOOL_LIST: { tool: Tool; icon: keyof typeof Ionicons.glyphMap; label: stri
   { tool: "arrow", icon: "arrow-forward", label: "Arrow" },
   { tool: "rectangle", icon: "square-outline", label: "Rect" },
   { tool: "freedraw", icon: "brush", label: "Draw" },
+  { tool: "crop" as Tool, icon: "crop-outline", label: "Crop" },
   { tool: "overlay" as Tool, icon: "add-circle-outline", label: "Overlay" },
 ];
 
@@ -157,7 +160,7 @@ export default function Editor() {
   const shotRef = useRef<View | null>(null);
   const insets = useSafeAreaInsets();
 
-  const [imageUri] = useState<string>(params.uri ?? "");
+  const [imageUri, setImageUri] = useState<string>(params.uri ?? "");
   const [imageDims, setImageDims] = useState<{ w: number; h: number }>({
     w: parseInt(params.width || "0", 10) || 1080,
     h: parseInt(params.height || "0", 10) || 1440,
@@ -179,6 +182,10 @@ export default function Editor() {
 
   // Modal state
   const [textModal, setTextModal] = useState<{ x: number; y: number; value: string; editingId?: string } | null>(null);
+
+  // Crop state (modal owns the rect; parent only tracks open/busy)
+  const [showCrop, setShowCrop] = useState(false);
+  const [cropping, setCropping] = useState(false);
 
   // Location & save
   const [loc, setLoc] = useState<LocationData | null>(null);
@@ -605,6 +612,85 @@ export default function Editor() {
   // Keep the ref up-to-date so the pinch worklet always sees the latest closure.
   resizeOverlayRef.current = resizeSelectedOverlay;
 
+  // Crop: open the crop modal
+  const openCrop = () => {
+    if (!imageLoaded) {
+      toast.show("Image still loading…", { kind: "info" });
+      return;
+    }
+    // Reset zoom so the underlying image is at its natural rest state.
+    scale.value = 1;
+    tx.value = 0;
+    ty.value = 0;
+    savedScale.value = 1;
+    savedTx.value = 0;
+    savedTy.value = 0;
+    setSelectedId(null);
+    setShowCrop(true);
+  };
+
+  const applyCrop = async (crop: { originX: number; originY: number; width: number; height: number }) => {
+    if (!imageUri || cropping) return;
+    const { originX, originY, width, height } = crop;
+    if (width < 4 || height < 4) {
+      toast.show("Crop area too small", { kind: "error" });
+      return;
+    }
+    setCropping(true);
+    try {
+      const result = await ImageManipulator.manipulateAsync(
+        imageUri,
+        [{ crop: { originX, originY, width, height } }],
+        { compress: 0.95, format: ImageManipulator.SaveFormat.JPEG },
+      );
+      // Translate existing annotations by (-originX, -originY) in IMAGE coords
+      // so they stay visually anchored on the cropped image.
+      const dx = -originX;
+      const dy = -originY;
+      const translated: Element[] = [];
+      for (const el of elements) {
+        const moved = moveElement(el, dx, dy);
+        const inside = (() => {
+          if (moved.type === "text" || moved.type === "marker") {
+            return moved.x >= -80 && moved.x <= width + 80 && moved.y >= -80 && moved.y <= height + 80;
+          }
+          if (moved.type === "circle") {
+            return moved.cx >= -moved.r && moved.cx <= width + moved.r && moved.cy >= -moved.r && moved.cy <= height + moved.r;
+          }
+          if (moved.type === "rectangle") {
+            return moved.x + moved.w >= 0 && moved.x <= width && moved.y + moved.h >= 0 && moved.y <= height;
+          }
+          if (moved.type === "arrow") {
+            const minX = Math.min(moved.x1, moved.x2), maxX = Math.max(moved.x1, moved.x2);
+            const minY = Math.min(moved.y1, moved.y2), maxY = Math.max(moved.y1, moved.y2);
+            return maxX >= 0 && minX <= width && maxY >= 0 && minY <= height;
+          }
+          if (moved.type === "freedraw") return true;
+          if (moved.type === "overlay") {
+            return moved.cx >= -moved.r && moved.cx <= width + moved.r && moved.cy >= -moved.r && moved.cy <= height + moved.r;
+          }
+          return true;
+        })();
+        if (inside) translated.push(moved);
+      }
+      setImageUri(result.uri);
+      setImageDims({ w: width, h: height });
+      setImageLoaded(true);
+      setHistory([translated]);
+      setHistoryIdx(0);
+      setShowCrop(false);
+      toast.show("Image cropped", { kind: "success" });
+    } catch (e: any) {
+      toast.show("Crop failed: " + (e?.message ?? "unknown"), { kind: "error" });
+    } finally {
+      setCropping(false);
+    }
+  };
+
+  const cancelCrop = () => {
+    setShowCrop(false);
+  };
+
   // Overlay: pick an image and add it as a circular overlay centered in the canvas
   const addOverlay = async () => {
     try {
@@ -660,13 +746,15 @@ export default function Editor() {
       <SafeAreaView style={{ flex: 1 }} edges={["top", "left", "right"]}>
         <View style={styles.topBar}>
           <Pressable
-            testID="editor-header-save-button"
-            accessibilityLabel="Save"
-            onPress={save}
-            disabled={saving}
-            style={[styles.iconBtn, styles.headerSaveBtn, saving && { opacity: 0.5 }]}
+            testID="editor-close-button"
+            accessibilityLabel="Close editor"
+            onPress={() => {
+              if (router.canGoBack()) router.back();
+              else router.replace("/");
+            }}
+            style={styles.iconBtn}
           >
-            <Ionicons name="save-outline" size={22} color="#fff" />
+            <Ionicons name="close" size={24} color="#fff" />
           </Pressable>
           <Pressable
             testID="editor-title-button"
@@ -684,6 +772,15 @@ export default function Editor() {
             </Pressable>
             <Pressable testID="editor-undo-button" onPress={undo} disabled={!canUndo} style={[styles.iconBtn, !canUndo && { opacity: 0.35 }]}>
               <Ionicons name="arrow-undo" size={22} color="#fff" />
+            </Pressable>
+            <Pressable
+              testID="editor-header-save-button"
+              accessibilityLabel="Save"
+              onPress={save}
+              disabled={saving}
+              style={[styles.iconBtn, styles.headerSaveBtn, saving && { opacity: 0.5 }]}
+            >
+              <Ionicons name="save-outline" size={22} color="#fff" />
             </Pressable>
           </View>
         </View>
@@ -811,6 +908,10 @@ export default function Editor() {
                   }
                   if ((t.tool as string) === "overlay") {
                     addOverlay();
+                    return;
+                  }
+                  if ((t.tool as string) === "crop") {
+                    openCrop();
                     return;
                   }
                   setTool(t.tool);
@@ -1013,6 +1114,16 @@ export default function Editor() {
         </View>
       </Modal>
 
+      {/* Crop modal */}
+      <CropModal
+        visible={showCrop}
+        imageUri={imageUri}
+        imageDims={imageDims}
+        onCancel={cancelCrop}
+        onConfirm={applyCrop}
+        cropping={cropping}
+      />
+
       {/* Notes modal */}
       <Modal visible={showNotes} transparent animationType="slide" onRequestClose={() => setShowNotes(false)}>
         <View style={styles.modalBackdrop}>
@@ -1041,6 +1152,370 @@ export default function Editor() {
 }
 
 // Hint to silence "Image is unused" if linter complains
+
+// -------- Crop Modal --------
+// Custom-built crop UI: draggable rectangle with 4 corner handles.
+// Uses PanResponder (built-in) so it works inside a Modal without needing a
+// GestureHandlerRootView wrapper. The modal computes its OWN letterboxed
+// displayed rect based on its stage size, then reports the final crop back to
+// the parent in IMAGE (pixel) coords for expo-image-manipulator.
+function CropModal(props: {
+  visible: boolean;
+  imageUri: string;
+  imageDims: { w: number; h: number };
+  onCancel: () => void;
+  onConfirm: (crop: { originX: number; originY: number; width: number; height: number }) => void;
+  cropping: boolean;
+}) {
+  const { visible, imageUri, imageDims, onCancel, onConfirm, cropping } = props;
+  const MIN = 40; // minimum crop side in displayed coords
+
+  const [stageSize, setStageSize] = useState<{ w: number; h: number }>({ w: 1, h: 1 });
+  const displayed = useMemo(() => {
+    const cw = stageSize.w, ch = stageSize.h;
+    const iw = imageDims.w || 1, ih = imageDims.h || 1;
+    const fit = Math.min(cw / iw, ch / ih);
+    const w = iw * fit, h = ih * fit;
+    return { x: (cw - w) / 2, y: (ch - h) / 2, w, h, scaleFit: fit };
+  }, [stageSize, imageDims]);
+
+  const [cropRect, setCropRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+
+  // Initialise / reset crop rect whenever the modal opens or the image rect changes.
+  useEffect(() => {
+    if (!visible) return;
+    if (displayed.w < 4 || displayed.h < 4) return;
+    const pad = 0.1;
+    setCropRect({
+      x: displayed.x + displayed.w * pad,
+      y: displayed.y + displayed.h * pad,
+      w: displayed.w * (1 - 2 * pad),
+      h: displayed.h * (1 - 2 * pad),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, displayed.x, displayed.y, displayed.w, displayed.h]);
+
+  const clampRect = (r: { x: number; y: number; w: number; h: number }) => {
+    const maxX = displayed.x + displayed.w;
+    const maxY = displayed.y + displayed.h;
+    let { x, y, w, h } = r;
+    if (w < MIN) w = MIN;
+    if (h < MIN) h = MIN;
+    if (x < displayed.x) x = displayed.x;
+    if (y < displayed.y) y = displayed.y;
+    if (x + w > maxX) x = maxX - w;
+    if (y + h > maxY) y = maxY - h;
+    return { x, y, w, h };
+  };
+
+  const startRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+
+  const bodyPan = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderGrant: () => {
+          startRef.current = cropRect ? { ...cropRect } : null;
+        },
+        onPanResponderMove: (_e, g) => {
+          if (!startRef.current) return;
+          setCropRect(
+            clampRect({
+              x: startRef.current.x + g.dx,
+              y: startRef.current.y + g.dy,
+              w: startRef.current.w,
+              h: startRef.current.h,
+            }),
+          );
+        },
+        onPanResponderRelease: () => {
+          startRef.current = null;
+        },
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cropRect, displayed.x, displayed.y, displayed.w, displayed.h],
+  );
+
+  const makeCornerPan = (corner: "tl" | "tr" | "bl" | "br") =>
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        startRef.current = cropRect ? { ...cropRect } : null;
+      },
+      onPanResponderMove: (_e, g) => {
+        if (!startRef.current) return;
+        const s = startRef.current;
+        let x = s.x, y = s.y, w = s.w, h = s.h;
+        if (corner === "tl") {
+          x = s.x + g.dx;
+          y = s.y + g.dy;
+          w = s.w - g.dx;
+          h = s.h - g.dy;
+        } else if (corner === "tr") {
+          y = s.y + g.dy;
+          w = s.w + g.dx;
+          h = s.h - g.dy;
+        } else if (corner === "bl") {
+          x = s.x + g.dx;
+          w = s.w - g.dx;
+          h = s.h + g.dy;
+        } else if (corner === "br") {
+          w = s.w + g.dx;
+          h = s.h + g.dy;
+        }
+        if (w < MIN) {
+          if (corner === "tl" || corner === "bl") x = s.x + s.w - MIN;
+          w = MIN;
+        }
+        if (h < MIN) {
+          if (corner === "tl" || corner === "tr") y = s.y + s.h - MIN;
+          h = MIN;
+        }
+        setCropRect(clampRect({ x, y, w, h }));
+      },
+      onPanResponderRelease: () => {
+        startRef.current = null;
+      },
+    });
+
+  const tlPan = useMemo(() => makeCornerPan("tl"), /* eslint-disable-next-line react-hooks/exhaustive-deps */ [cropRect, displayed.x, displayed.y, displayed.w, displayed.h]);
+  const trPan = useMemo(() => makeCornerPan("tr"), /* eslint-disable-next-line react-hooks/exhaustive-deps */ [cropRect, displayed.x, displayed.y, displayed.w, displayed.h]);
+  const blPan = useMemo(() => makeCornerPan("bl"), /* eslint-disable-next-line react-hooks/exhaustive-deps */ [cropRect, displayed.x, displayed.y, displayed.w, displayed.h]);
+  const brPan = useMemo(() => makeCornerPan("br"), /* eslint-disable-next-line react-hooks/exhaustive-deps */ [cropRect, displayed.x, displayed.y, displayed.w, displayed.h]);
+
+  const handleConfirm = () => {
+    if (!cropRect) return;
+    const fit = displayed.scaleFit || 1;
+    const originX = Math.max(0, Math.round((cropRect.x - displayed.x) / fit));
+    const originY = Math.max(0, Math.round((cropRect.y - displayed.y) / fit));
+    const width = Math.max(1, Math.round(cropRect.w / fit));
+    const height = Math.max(1, Math.round(cropRect.h / fit));
+    const safeW = Math.min(width, imageDims.w - originX);
+    const safeH = Math.min(height, imageDims.h - originY);
+    onConfirm({ originX, originY, width: safeW, height: safeH });
+  };
+
+  const HANDLE = 28;
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={cropStyles.root} testID="crop-modal">
+        {/* Top bar */}
+        <View style={cropStyles.topBar}>
+          <Pressable testID="crop-cancel-button" onPress={onCancel} style={cropStyles.topBtn}>
+            <Ionicons name="close" size={22} color="#fff" />
+            <Text style={cropStyles.topBtnText}>Cancel</Text>
+          </Pressable>
+          <Text style={cropStyles.topTitle}>Crop Image</Text>
+          <Pressable
+            testID="crop-confirm-button"
+            onPress={handleConfirm}
+            disabled={cropping || !cropRect}
+            style={[cropStyles.topBtn, { opacity: cropping || !cropRect ? 0.5 : 1 }]}
+          >
+            <Ionicons name="checkmark" size={22} color="#8CB8FF" />
+            <Text style={[cropStyles.topBtnText, { color: "#8CB8FF" }]}>
+              {cropping ? "Cropping…" : "Confirm"}
+            </Text>
+          </Pressable>
+        </View>
+
+        {/* Image + crop rect */}
+        <View
+          style={cropStyles.stage}
+          onLayout={(e) => setStageSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
+        >
+          <RNImage
+            source={{ uri: imageUri }}
+            style={{
+              position: "absolute",
+              left: displayed.x,
+              top: displayed.y,
+              width: displayed.w,
+              height: displayed.h,
+            }}
+            resizeMode="cover"
+          />
+          {cropRect ? (
+            <>
+              {/* Dim overlay - four rectangles around the crop rect */}
+              <View
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: 0,
+                  right: 0,
+                  height: cropRect.y,
+                  backgroundColor: "rgba(0,0,0,0.55)",
+                }}
+              />
+              <View
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: cropRect.y + cropRect.h,
+                  right: 0,
+                  bottom: 0,
+                  backgroundColor: "rgba(0,0,0,0.55)",
+                }}
+              />
+              <View
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: cropRect.y,
+                  width: cropRect.x,
+                  height: cropRect.h,
+                  backgroundColor: "rgba(0,0,0,0.55)",
+                }}
+              />
+              <View
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  left: cropRect.x + cropRect.w,
+                  top: cropRect.y,
+                  right: 0,
+                  height: cropRect.h,
+                  backgroundColor: "rgba(0,0,0,0.55)",
+                }}
+              />
+              {/* Draggable crop rect body */}
+              <View
+                {...bodyPan.panHandlers}
+                testID="crop-rect"
+                style={{
+                  position: "absolute",
+                  left: cropRect.x,
+                  top: cropRect.y,
+                  width: cropRect.w,
+                  height: cropRect.h,
+                  borderWidth: 2,
+                  borderColor: "#8CB8FF",
+                  backgroundColor: "transparent",
+                }}
+              >
+                {[1, 2].map((i) => (
+                  <View
+                    key={`v${i}`}
+                    pointerEvents="none"
+                    style={{
+                      position: "absolute",
+                      left: (cropRect.w / 3) * i,
+                      top: 0,
+                      bottom: 0,
+                      width: StyleSheet.hairlineWidth,
+                      backgroundColor: "rgba(255,255,255,0.4)",
+                    }}
+                  />
+                ))}
+                {[1, 2].map((i) => (
+                  <View
+                    key={`h${i}`}
+                    pointerEvents="none"
+                    style={{
+                      position: "absolute",
+                      top: (cropRect.h / 3) * i,
+                      left: 0,
+                      right: 0,
+                      height: StyleSheet.hairlineWidth,
+                      backgroundColor: "rgba(255,255,255,0.4)",
+                    }}
+                  />
+                ))}
+              </View>
+              {/* Corner handles */}
+              <View
+                {...tlPan.panHandlers}
+                testID="crop-handle-tl"
+                style={[cropStyles.corner, { left: cropRect.x - HANDLE / 2, top: cropRect.y - HANDLE / 2 }]}
+              >
+                <View style={cropStyles.cornerDot} />
+              </View>
+              <View
+                {...trPan.panHandlers}
+                testID="crop-handle-tr"
+                style={[cropStyles.corner, { left: cropRect.x + cropRect.w - HANDLE / 2, top: cropRect.y - HANDLE / 2 }]}
+              >
+                <View style={cropStyles.cornerDot} />
+              </View>
+              <View
+                {...blPan.panHandlers}
+                testID="crop-handle-bl"
+                style={[cropStyles.corner, { left: cropRect.x - HANDLE / 2, top: cropRect.y + cropRect.h - HANDLE / 2 }]}
+              >
+                <View style={cropStyles.cornerDot} />
+              </View>
+              <View
+                {...brPan.panHandlers}
+                testID="crop-handle-br"
+                style={[cropStyles.corner, { left: cropRect.x + cropRect.w - HANDLE / 2, top: cropRect.y + cropRect.h - HANDLE / 2 }]}
+              >
+                <View style={cropStyles.cornerDot} />
+              </View>
+            </>
+          ) : null}
+        </View>
+
+        <View style={cropStyles.hintRow}>
+          <Ionicons name="information-circle-outline" size={14} color="rgba(255,255,255,0.7)" />
+          <Text style={cropStyles.hintText}>Drag the box to move • Drag corners to resize</Text>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const cropStyles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: "#000" },
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingTop: Platform.OS === "ios" ? 52 : 16,
+    paddingBottom: 12,
+    backgroundColor: "rgba(0,0,0,0.85)",
+  },
+  topBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  topBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
+  topTitle: { color: "#fff", fontWeight: "700", fontSize: 15, letterSpacing: 0.5 },
+  stage: { flex: 1, backgroundColor: "#000", position: "relative" },
+  corner: {
+    position: "absolute",
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cornerDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: "#8CB8FF",
+    borderWidth: 2,
+    borderColor: "#fff",
+  },
+  hintRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    justifyContent: "center",
+    paddingVertical: 12,
+    backgroundColor: "rgba(0,0,0,0.85)",
+  },
+  hintText: { color: "rgba(255,255,255,0.75)", fontSize: 12 },
+});
 
 function renderElement(el: Element, selected: boolean) {
   const halo = selected ? <SelectionHalo el={el} /> : null;

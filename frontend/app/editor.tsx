@@ -26,7 +26,10 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { StatusBar } from "expo-status-bar";
 import Svg, {
   Circle,
+  ClipPath,
+  Defs,
   G,
+  Image as SvgImage,
   Line,
   Path,
   Polygon,
@@ -43,7 +46,7 @@ import { useTheme } from "@/src/theme/ThemeProvider";
 import { annotationPalette, radius, spacing } from "@/src/theme/tokens";
 import { formatLocationStamp, getCurrentLocation, queueForGeocoding } from "@/src/utils/location";
 
-type Tool = "select" | "text" | "circle" | "arrow" | "rectangle" | "freedraw" | "marker";
+type Tool = "select" | "text" | "circle" | "arrow" | "rectangle" | "freedraw" | "marker" | "notes" | "overlay";
 type ColorName = keyof typeof annotationPalette;
 type Size = "S" | "M" | "L";
 
@@ -67,7 +70,8 @@ type ArrowEl = { id: string; type: "arrow"; x1: number; y1: number; x2: number; 
 type RectEl = { id: string; type: "rectangle"; x: number; y: number; w: number; h: number; color: string };
 type FreeEl = { id: string; type: "freedraw"; d: string; color: string; strokeWidth: number };
 type MarkerEl = { id: string; type: "marker"; x: number; y: number; n: number; color: string };
-type Element = TextEl | CircleEl | ArrowEl | RectEl | FreeEl | MarkerEl;
+type OverlayEl = { id: string; type: "overlay"; cx: number; cy: number; r: number; uri: string };
+type Element = TextEl | CircleEl | ArrowEl | RectEl | FreeEl | MarkerEl | OverlayEl;
 
 const TOOL_LIST: { tool: Tool; icon: keyof typeof Ionicons.glyphMap; label: string }[] = [
   { tool: "select", icon: "hand-left-outline", label: "Move" },
@@ -80,6 +84,7 @@ const TOOL_LIST: { tool: Tool; icon: keyof typeof Ionicons.glyphMap; label: stri
   { tool: "arrow", icon: "arrow-forward", label: "Arrow" },
   { tool: "rectangle", icon: "square-outline", label: "Rect" },
   { tool: "freedraw", icon: "brush", label: "Draw" },
+  { tool: "overlay" as Tool, icon: "add-circle-outline", label: "Overlay" },
 ];
 
 const SIZE_PX: Record<Size, number> = { S: 18, M: 26, L: 36 };
@@ -113,9 +118,10 @@ function hitTest(elements: Element[], px: number, py: number): Element | null {
     } else if (el.type === "marker") {
       if (Math.hypot(px - el.x, py - el.y) <= 18) return el;
     } else if (el.type === "freedraw") {
-      // sample first/last points crudely
       const m = /M([\d.]+) ([\d.]+)/.exec(el.d);
       if (m && Math.hypot(px - parseFloat(m[1]), py - parseFloat(m[2])) <= 18) return el;
+    } else if (el.type === "overlay") {
+      if (Math.hypot(px - el.cx, py - el.cy) <= el.r) return el;
     }
   }
   return null;
@@ -133,13 +139,14 @@ function moveElement(el: Element, dx: number, dy: number): Element {
     case "rectangle":
       return { ...el, x: el.x + dx, y: el.y + dy };
     case "freedraw":
-      // shift all coords in path string
       const shifted = el.d.replace(/([ML])([\d.]+) ([\d.]+)/g, (_m, cmd, sx, sy) => {
         const nx = (parseFloat(sx) + dx).toFixed(1);
         const ny = (parseFloat(sy) + dy).toFixed(1);
         return `${cmd}${nx} ${ny}`;
       });
       return { ...el, d: shifted };
+    case "overlay":
+      return { ...el, cx: el.cx + dx, cy: el.cy + dy };
   }
 }
 
@@ -202,6 +209,10 @@ export default function Editor() {
   const savedScale = useSharedValue(1);
   const savedTx = useSharedValue(0);
   const savedTy = useSharedValue(0);
+  // For overlay resize via pinch: 0 = no overlay selected; > 0 = starting radius
+  const selectedOverlayInitR = useSharedValue(0);
+  // Stable ref so the pinch worklet can call the latest resize impl without TDZ.
+  const resizeOverlayRef = useRef<(r: number) => void>(() => {});
 
   // Convert outer (container-relative) touch coords → logical canvas coords
   // (logical = unscaled coordinate inside the displayed image rect)
@@ -220,6 +231,12 @@ export default function Editor() {
       savedScale.value = scale.value;
     })
     .onUpdate((e) => {
+      // If an overlay is selected, resize the overlay instead of the canvas.
+      if (selectedOverlayInitR.value > 0) {
+        const nextR = Math.max(20, Math.min(displayed.w * 0.9, selectedOverlayInitR.value * e.scale));
+        runOnJS((r: number) => resizeOverlayRef.current(r))(nextR);
+        return;
+      }
       const next = Math.max(1, Math.min(5, savedScale.value * e.scale));
       scale.value = next;
     })
@@ -233,6 +250,7 @@ export default function Editor() {
         savedTx.value = 0;
         savedTy.value = 0;
       }
+      selectedOverlayInitR.value = 0;
     });
 
   const pan2 = Gesture.Pan()
@@ -570,6 +588,69 @@ export default function Editor() {
     }
   };
 
+  // Whenever the selected element is an overlay, expose its current radius to
+  // the pinch worklet so onUpdate can compute the new radius.
+  useEffect(() => {
+    const el = elements.find((e) => e.id === selectedId);
+    if (el?.type === "overlay") {
+      selectedOverlayInitR.value = el.r;
+    } else {
+      selectedOverlayInitR.value = 0;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, elements]);
+
+  const resizeSelectedOverlay = (nextR: number) => {
+    if (!selectedId) return;
+    const next = elements.map((e) =>
+      e.id === selectedId && e.type === "overlay" ? { ...e, r: nextR } : e,
+    );
+    const trimmed = history.slice(0, historyIdx + 1);
+    trimmed[historyIdx] = next;
+    setHistory(trimmed);
+  };
+  // Keep the ref up-to-date so the pinch worklet always sees the latest closure.
+  resizeOverlayRef.current = resizeSelectedOverlay;
+
+  // Overlay: pick an image and add it as a circular overlay centered in the canvas
+  const addOverlay = async () => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const ImagePicker = require("expo-image-picker");
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        toast.show("Photos permission denied", { kind: "error" });
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions
+          ? ImagePicker.MediaTypeOptions.Images
+          : "images",
+        quality: 1,
+        exif: false,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const a = result.assets[0];
+      const cx = displayed.x + displayed.w / 2;
+      const cy = displayed.y + displayed.h / 2;
+      const r = Math.min(displayed.w, displayed.h) * 0.2;
+      const el: OverlayEl = {
+        id: genId(),
+        type: "overlay",
+        cx,
+        cy,
+        r,
+        uri: a.uri,
+      };
+      pushHistory([...elements, el]);
+      setTool("select");
+      setSelectedId(el.id);
+      toast.show("Overlay added — drag to move, pinch to resize", { kind: "info" });
+    } catch (e: any) {
+      toast.show("Overlay error: " + (e?.message ?? "unknown"), { kind: "error" });
+    }
+  };
+
   if (!imageUri) {
     return (
       <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -736,6 +817,10 @@ export default function Editor() {
                 onPress={() => {
                   if ((t.tool as string) === "notes") {
                     setShowNotes(true);
+                    return;
+                  }
+                  if ((t.tool as string) === "overlay") {
+                    addOverlay();
                     return;
                   }
                   setTool(t.tool);
@@ -1065,6 +1150,36 @@ function renderElement(el: Element, selected: boolean) {
           </SvgText>
         </G>
       );
+    case "overlay": {
+      const clipId = `clip-${el.id}`;
+      return (
+        <G key={el.id}>
+          <Defs>
+            <ClipPath id={clipId}>
+              <Circle cx={el.cx} cy={el.cy} r={el.r} />
+            </ClipPath>
+          </Defs>
+          <SvgImage
+            href={{ uri: el.uri } as any}
+            x={el.cx - el.r}
+            y={el.cy - el.r}
+            width={el.r * 2}
+            height={el.r * 2}
+            preserveAspectRatio="xMidYMid slice"
+            clipPath={`url(#${clipId})`}
+          />
+          <Circle
+            cx={el.cx}
+            cy={el.cy}
+            r={el.r}
+            stroke={selected ? "#8CB8FF" : "#FFFFFF"}
+            strokeWidth={selected ? 3 : 2}
+            fill="none"
+          />
+          {halo}
+        </G>
+      );
+    }
   }
 }
 
@@ -1097,6 +1212,10 @@ function SelectionHalo({ el }: { el: Element }) {
   if (el.type === "marker") {
     return <Circle cx={el.x} cy={el.y} r={22} stroke={stroke} strokeDasharray="4 3" strokeWidth={1.5} fill="none" />;
   }
+  if (el.type === "overlay") {
+    return <Circle cx={el.cx} cy={el.cy} r={el.r + 6} stroke={stroke} strokeDasharray="6 4" strokeWidth={2} fill="none" />;
+  }
+
   return null;
 }
 

@@ -1,0 +1,57 @@
+name: Build Android
+
+on:
+  push:
+    branches:
+      - Ver1.4
+  pull_request:
+    branches:
+      - Ver1.4
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm install --legacy-peer-deps
+
+      - name: Install Expo CLI
+        run: npm install -g expo
+
+      - name: Generate Android project
+        working-directory: frontend
+        env:
+          CI: 1
+        run: npx expo prebuild --platform android
+
+      - name: Build APK
+        working-directory: frontend/android
+        run: ./gradlew assembleRelease
+
+      - name: Build AAB
+        working-directory: frontend/android
+        run: ./gradlew bundleRelease
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Field-Inspection-Ver1.4-APK
+          path: frontend/android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: Field-Inspection-Ver1.4-AAB
+          path: frontend/android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error

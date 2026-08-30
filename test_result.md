@@ -156,7 +156,40 @@ frontend:
         agent: "testing"
         comment: "End-to-end verified on web preview. Added 3 markers -> SVG text = ['1','2','3']. Pressed Undo -> ['1','2']. Added new marker -> ['1','2','3']. New marker labeled '3' (NOT '4'). Fix in editor.tsx:301-307 uses elements.filter(marker).length + 1 at drop time as specified."
 
-  - task: "Editor: Crop Image tool - drag smoothness fix"
+  - task: "Editor: Overlay drag rendering fix (web clipPath quirk)"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/editor.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: false
+        agent: "user"
+        comment: |
+          User reported that when moving the Circular Image Overlay with the Move tool, the visible circle
+          stays fixed while only the image inside moves. Works fine on iOS device; broken on web preview.
+      - working: "NA"
+        agent: "main"
+        comment: |
+          Root cause: react-native-svg's <ClipPath> on web has known refresh quirks — the clip Circle can
+          appear "frozen" during rapid state updates (like a drag), so the image translates but the visible
+          clipping window doesn't move with it. iOS renders SVG natively so it's not affected.
+          Fix: Overlays are no longer rendered inside SVG. `renderElement` returns null for overlay type.
+          Instead, an overlay pass after the <Svg> renders each overlay as a native <View> with
+          borderRadius: r, overflow: 'hidden', and an <Image> child (100%x100%, cover). Selection is
+          indicated by a thicker blue border (borderWidth 3, color #8CB8FF). Positioning is in shotArea-
+          local coords (el.cx - displayed.x - r, el.cy - displayed.y - r). captureRef still captures these
+          Views correctly because they're descendants of shotArea. Removed unused SVG imports (Defs,
+          ClipPath, Image as SvgImage). Also ensures parity between iOS/Android/web.
+      - working: "NA"
+        agent: "main"
+        comment: |
+          Smoke-verified in web preview — editor loads clean, no red screen, header order preserved.
+          End-to-end overlay drag test on web is impractical (file picker) but the fix is code-provable
+          and matches the standard RN pattern for circular image chips.
+
+
     implemented: true
     working: "NA"
     file: "/app/frontend/app/editor.tsx"

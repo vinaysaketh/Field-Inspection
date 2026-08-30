@@ -28,10 +28,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { StatusBar } from "expo-status-bar";
 import Svg, {
   Circle,
-  ClipPath,
-  Defs,
   G,
-  Image as SvgImage,
   Line,
   Path,
   Polygon,
@@ -850,6 +847,48 @@ export default function Editor() {
                   </G>
                 </Svg>
 
+                {/* Native overlay rendering pass. Rendered as absolutely-
+                    positioned Views (with borderRadius) so the visible circle
+                    stays in sync with drags on web (react-native-svg's
+                    <ClipPath> can leave the clip Circle stale during rapid
+                    updates, causing the "circle stays / image moves inside"
+                    bug the user reported). Positioning is in shotArea-local
+                    coords: elements are stored in canvasWrap coords, so we
+                    subtract (displayed.x, displayed.y). */}
+                {[...elements, ...(draft ? [draft] : [])]
+                  .filter((el): el is OverlayEl => el.type === "overlay")
+                  .map((el) => {
+                    const selected = el.id === selectedId;
+                    const left = el.cx - displayed.x - el.r;
+                    const top = el.cy - displayed.y - el.r;
+                    const size = el.r * 2;
+                    return (
+                      <View
+                        key={el.id}
+                        style={{
+                          position: "absolute",
+                          left,
+                          top,
+                          width: size,
+                          height: size,
+                          borderRadius: el.r,
+                          overflow: "hidden",
+                          borderWidth: selected ? 3 : 2,
+                          borderColor: selected ? "#8CB8FF" : "#FFFFFF",
+                          pointerEvents: "none",
+                        }}
+                        collapsable={false}
+                      >
+                        <RNImage
+                          source={{ uri: el.uri }}
+                          style={{ width: "100%", height: "100%" }}
+                          resizeMode="cover"
+                          fadeDuration={0}
+                        />
+                      </View>
+                    );
+                  })}
+
                 {stampText ? (
                   <View
                     style={[styles.stamp, { left: 8, bottom: 8, pointerEvents: "none" }]}
@@ -1658,34 +1697,12 @@ function renderElement(el: Element, selected: boolean) {
         </G>
       );
     case "overlay": {
-      const clipId = `clip-${el.id}`;
-      return (
-        <G key={el.id}>
-          <Defs>
-            <ClipPath id={clipId}>
-              <Circle cx={el.cx} cy={el.cy} r={el.r} />
-            </ClipPath>
-          </Defs>
-          <SvgImage
-            href={{ uri: el.uri } as any}
-            x={el.cx - el.r}
-            y={el.cy - el.r}
-            width={el.r * 2}
-            height={el.r * 2}
-            preserveAspectRatio="xMidYMid slice"
-            clipPath={`url(#${clipId})`}
-          />
-          <Circle
-            cx={el.cx}
-            cy={el.cy}
-            r={el.r}
-            stroke={selected ? "#8CB8FF" : "#FFFFFF"}
-            strokeWidth={selected ? 3 : 2}
-            fill="none"
-          />
-          {halo}
-        </G>
-      );
+      // Overlays are rendered as native RN Views outside of SVG (see the
+      // overlay pass in the canvas below). react-native-svg's <ClipPath>
+      // has known refresh quirks on web where the clip circle appears
+      // "frozen" while the image inside moves, causing the visible circle
+      // to lag behind drags. Native <View borderRadius> is refresh-safe.
+      return null;
     }
   }
 }

@@ -2,17 +2,22 @@ name: Build Android
 
 on:
   push:
-    branches: [ main, master ]
+    branches:
+      - Ver1.4
   pull_request:
+    branches:
+      - Ver1.4
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
         with:
           node-version: 20
 
@@ -25,7 +30,9 @@ jobs:
 
       - name: Generate Android project
         working-directory: frontend
-        run: npx expo prebuild --platform android --non-interactive
+        env:
+          CI: 1
+        run: npx expo prebuild --platform android
 
       - name: Build APK
         working-directory: frontend/android
@@ -38,11 +45,13 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk
+          name: Field-Inspection-Ver1.4-APK
           path: frontend/android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
 
       - name: Upload AAB
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-aab
+          name: Field-Inspection-Ver1.4-AAB
           path: frontend/android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error

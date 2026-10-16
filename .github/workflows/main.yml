@@ -1,4 +1,5 @@
-name: Build Android
+
+name: Build Android and Apple iOS
 
 on:
   push:
@@ -9,7 +10,8 @@ on:
       - Ver1.4
 
 jobs:
-  build:
+  build-android:
+    name: Build Android
     runs-on: ubuntu-latest
 
     steps:
@@ -54,4 +56,37 @@ jobs:
         with:
           name: Field-Inspection-Ver1.4-AAB
           path: frontend/android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+
+  build-ios:
+    name: Build Apple iOS
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm install --legacy-peer-deps
+
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
+
+      - name: Build iOS IPA
+        working-directory: frontend
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: eas build --platform ios --profile preview --local --non-interactive
+
+      - name: Upload iOS IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Field-Inspection-Ver1.4-iOS-IPA
+          path: frontend/*.ipa
           if-no-files-found: error

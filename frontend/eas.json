@@ -1,3 +1,4 @@
+
 {
   "cli": {
     "version": ">= 16.0.0"
@@ -6,6 +7,12 @@
     "production": {
       "android": {
         "buildType": "app-bundle"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "ios": {
+        "simulator": false
       }
     }
   }

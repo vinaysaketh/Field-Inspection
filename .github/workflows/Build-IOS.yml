@@ -1,0 +1,78 @@
+
+name: Build FieldSnap Pro iOS
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - Ver1.4
+  pull_request:
+    branches:
+      - Ver1.4
+
+jobs:
+  build-ios:
+    name: Build iOS App
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm install --legacy-peer-deps
+
+      - name: Generate iOS project
+        working-directory: frontend
+        run: npx expo prebuild --platform ios
+
+      - name: Install CocoaPods
+        working-directory: frontend/ios
+        run: pod install
+
+      - name: Build iOS device app without signing
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          WORKSPACE=$(find ios -maxdepth 1 -name '*.xcworkspace' -print -quit)
+
+          if [ -z "$WORKSPACE" ]; then
+            echo "ERROR: Xcode workspace not found"
+            exit 1
+          fi
+
+          SCHEME=$(xcodebuild -list -json -workspace "$WORKSPACE" | \
+            python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)
+          schemes = data.get("workspace", {}).get("schemes", [])
+          if not schemes:
+              raise SystemExit("No Xcode schemes found")
+          print(next((s for s in schemes if not s.endswith("-Pods")), schemes[0]))
+          ')
+
+          xcodebuild \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath ios/build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Upload iOS build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: FieldSnapPro-iOS-Unsigned
+          path: frontend/ios/build/Build/Products/Release-iphoneos/
+          if-no-files-found: error
+          retention-days: 7

@@ -1,3 +1,4 @@
+
 {
   "expo": {
     "name": "FieldSnap Pro",
@@ -10,14 +11,14 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.emergent.fielddocs.mztrm0",
       "infoPlist": {
         "NSCameraUsageDescription": "Capture photos for field observations",
         "NSPhotoLibraryUsageDescription": "Save annotated observation images",
         "NSPhotoLibraryAddUsageDescription": "Save annotated observation images",
         "NSLocationWhenInUseUsageDescription": "Stamp GPS location on captured images",
         "NSFaceIDUsageDescription": "Unlock the app using Face ID"
-      },
-      "bundleIdentifier": "com.emergent.fielddocs.mztrm0"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -88,6 +89,11 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "e6652876-add4-4250-ba20-d53722ed5f83"
+      }
     }
   }
 }
